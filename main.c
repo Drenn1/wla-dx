@@ -98,6 +98,8 @@ int main(int argc, char *argv[]) {
 
   int i = SUCCEEDED;
 
+  hashmap_test();
+
   if (sizeof(double) != 8) {
     fprintf(stderr, "MAIN: sizeof(double) == %d != 8. WLA will not work properly.\n", (int)sizeof(double));
     return -1;

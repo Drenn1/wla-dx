@@ -483,3 +483,53 @@ int hashmap_length(map_t in){
   if(m != NULL) return m->size;
   else return 0;
 }
+
+void hashmap_print(map_t in) {
+  hashmap_map* m = (hashmap_map*)in;
+  hashmap_element* e;
+  int i;
+
+  printf("Hashmap output:\n");
+
+  for (i=0; i<m->table_size; i++) {
+    e = &m->data[i];
+
+    if (e->in_use == 0)
+      continue;
+
+    while (e != NULL) {
+      printf("\t%s: %d\n", e->key, (int)e->data);
+      e = e->next;
+    }
+  }
+}
+
+/* Should change hashmap_hash_int to return 0 while testing this */
+void hashmap_test() {
+  char* names[] = { "ab", "bc", "cd", "de", "ef", "fg", "gh", "hi" };
+  int i;
+  map_t m = hashmap_new();
+
+  for (i=0; i<8; i++) {
+    hashmap_put(m, names[i], (void*)i);
+  }
+
+  hashmap_print(m);
+
+  hashmap_remove(m, names[0]);
+  printf("Removed 'ab'.\n");
+  hashmap_print(m);
+
+  hashmap_remove(m, names[2]);
+  printf("Removed 'cd'.\n");
+  hashmap_print(m);
+
+  hashmap_put(m, names[4], (void*)9);
+  printf("Set 'ef' to 9.\n");
+  hashmap_print(m);
+
+  hashmap_get(m, names[1], (void*)&i);
+  printf("hashmap_get: %s returns %d.\n", names[1], i);
+
+  hashmap_free(m);
+}
