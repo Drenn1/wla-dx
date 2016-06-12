@@ -718,20 +718,13 @@ void output_assembled_opcode(struct optcode *oc, const char *format, ...) {
 
 int evaluate_token(void) {
 
-  int f, z = 0, x;
-#if !defined(GB)
-  int y;
-#endif
+  int z = 0;
+  int result = EVALUATE_TOKEN_NOT_IDENTIFIED;
 #if defined(Z80) || defined(SPC700) || defined(W65816) || defined(WDC65C02) || defined(HUC6280)
   int e = 0, v = 0, h = 0;
-  char labelx[256];
-#endif
-#ifdef SPC700
-  int g;
 #endif
 #ifdef HUC6280
-  int r = 0, s, t = 0, u = 0;
-  char labely[256];
+  int r = 0, t = 0, u = 0;
 #endif
 
   
@@ -775,11 +768,201 @@ int evaluate_token(void) {
   }
 
   /* OPCODE? */
+
+  token_stack_push_state(buffer_stack);
+  expand_define_token_buffer(buffer_stack);
+  result = evaluate_opcode();
+
+  if (result == EVALUATE_TOKEN_NOT_IDENTIFIED){
+    token_stack_pop_state(buffer_stack, 0);
+
+    /* allow error messages from input_numbers() */
+    input_number_error_msg = YES;
+  }
+  else
+    token_stack_pop_state(buffer_stack, 1);
+
+  return result;
+}
+
+int is_soft_delimiter(char delimiter){
+  return (delimiter == '+' || delimiter == '-' ||
+    delimiter == '*' || delimiter == '/' || delimiter == '=' ||
+    delimiter == '!' || delimiter == '<' || delimiter == '>' ||
+    delimiter == '^' || delimiter == '#' || delimiter == '(' ||
+    delimiter == ')' || delimiter == '[' || delimiter == ']');
+}
+
+void expand_define_token_buffer(struct token_stack_root *token_buffer){
+
+  char current_token;
+  char temp_buffer[4096];
+  char current_entry[MAX_NAME_LENGTH];
+  int buffer_size = 0;
+  int restore_offset;
+  struct definition *tmp_definition = NULL;
+
+  token_stack_push_state(token_buffer);
+
+  current_token = token_stack_get_current_token(token_buffer);
+  while (current_token != 0x0A && current_token != 0x00){
+
+    int entry_index = 0;
+    char define_entry[MAX_NAME_LENGTH];
+    int define_index = 0;
+
+    /* Read into the current_entry until we reach the first hard delimiter. */
+    while (entry_index < MAX_NAME_LENGTH && current_token != ' ' && current_token != ',' &&
+      current_token != 0x0A && current_token != 0x00){
+      
+      /* Build the current buffer. */
+      current_entry[entry_index] = current_token;
+      ++entry_index;
+      
+      token_stack_move(token_buffer, 1);
+      current_token = token_stack_get_current_token(token_buffer);
+    }
+
+    current_entry[entry_index] = 0;
+
+    // Copy the entire entry.
+    memcpy(define_entry, current_entry, MAX_NAME_LENGTH);
+    define_index = entry_index;
+
+    /* Fallback to each soft token, on failure, resume parsing from this token if a match is found. */
+    while (define_index > 0){
+      /* Test the entry against the defines. */
+      int hash_result = hashmap_get(defines_map, define_entry, (void *)&tmp_definition);
+
+      if (hash_result == MAP_OK && 
+        (tmp_definition->type == DEFINITION_TYPE_STRING ||
+        tmp_definition->type == DEFINTIION_TYPE_MACRO_ARG ||
+        tmp_definition->type == DEFINITION_TYPE_ADDRESS_LABEL)){
+        int offset;
+
+        /* Substitute the definition. */
+        strcpy(&temp_buffer[buffer_size], tmp_definition->string);
+        buffer_size += strlen(tmp_definition->string);
+
+        /* Adjust the buffer if we moved to an earlier token. */
+        offset = define_index - entry_index;
+        token_stack_move(token_buffer, offset);
+
+        break;
+      }
+      else{
+        current_token = define_entry[define_index];
+        while (define_index > 0 && is_soft_delimiter(current_token) == 0){
+
+          /* Clear the trailing token data. */
+          define_entry[define_index] = 0;
+
+          --define_index;
+          current_token = define_entry[define_index];
+        }
+
+        while (define_index > 0 && is_soft_delimiter(current_token) != 0){
+
+          /* Clear the trailing delimiter data. */
+          define_entry[define_index] = 0;
+
+          --define_index;
+          current_token = define_entry[define_index];
+        }
+      }
+
+      if (define_index == 0){
+        int token_index = 0;
+        current_token = current_entry[token_index];
+        ++token_index;
+
+        temp_buffer[buffer_size] = current_token;
+        ++buffer_size;
+
+        if (is_soft_delimiter(current_token) != 0){
+          current_token = current_entry[token_index];
+          /* Write all soft delimiters and reset buffer */
+          while (token_index < entry_index && is_soft_delimiter (current_token) != 0){
+            temp_buffer[buffer_size] = current_token;
+            ++buffer_size;
+
+            ++token_index;
+            current_token = current_entry[token_index];
+          }
+
+          token_stack_move(token_buffer, token_index - entry_index);
+        }
+        else{
+          current_token = current_entry[token_index];
+          /* Write all normal tokens and reset buffer */
+          while (token_index < entry_index && is_soft_delimiter(current_token) == 0){
+            temp_buffer[buffer_size] = current_token;
+            ++buffer_size;
+
+            ++token_index;
+            current_token = current_entry[token_index];
+          }
+
+          token_stack_move(token_buffer, token_index - entry_index);
+        }
+      }
+    }
+
+    /* Copy any trailing hard tokens. */
+    current_token = token_stack_get_current_token(token_buffer);
+    if (current_token == ' ' || current_token == ','){
+      /* Append the hard token. */
+      temp_buffer[buffer_size] = current_token;
+      ++buffer_size;
+
+      token_stack_move(token_buffer, 1);
+      current_token = token_stack_get_current_token(token_buffer);
+    }
+  }
+
+  temp_buffer[buffer_size] = 0;
+  ++buffer_size;
+
+  restore_offset = token_buffer->active_entry->buffer_offset;
+  token_stack_pop_state(token_buffer, 0);
+  restore_offset -= token_buffer->active_entry->buffer_offset;
+  
+  if (buffer_size > 1){
+    struct token_stack_entry *new_entry = NULL;
+    char *active_string = malloc(buffer_size);
+    memcpy(active_string, temp_buffer, buffer_size);
+
+    token_buffer->active_entry->restore_offset = restore_offset;
+    new_entry = token_stack_push(token_buffer, active_string, 0);
+    if (new_entry != NULL){
+      new_entry->buffer_allocated = 1;
+    }
+  }
+}
+
+int evaluate_opcode(void){
+
+  int f, z = 0, x;
+#if !defined(GB)
+  int y;
+#endif
+#if defined(Z80) || defined(SPC700) || defined(W65816) || defined(WDC65C02) || defined(HUC6280)
+  int e = 0, v = 0, h = 0;
+  char labelx[256];
+#endif
+#ifdef SPC700
+  int g;
+#endif
+#ifdef HUC6280
+  int r = 0, s, t = 0, u = 0;
+  char labely[256];
+#endif
+
   {
     int op_id = tmp[0];
     if (op_id < 0) {
-        print_error("Invalid value\n", ERROR_LOG);
-        return FAILED;
+      print_error("Invalid value\n", ERROR_LOG);
+      return FAILED;
     }
 
     ind = opcode_p[op_id];
@@ -903,12 +1086,8 @@ int evaluate_token(void) {
     opt_tmp = &opt_table[++ind];
   }
 
-  /* allow error messages from input_numbers() */
-  input_number_error_msg = YES;
-
   return EVALUATE_TOKEN_NOT_IDENTIFIED;
 }
-
 
 int redefine(char *name, double value, char *string, int type, int size) {
 
