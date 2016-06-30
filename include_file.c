@@ -12,8 +12,11 @@
 
 
 extern int ind, inz, i, unfolded_size, extra_definitions, d, use_incdir;
-extern char *unfolded_buffer, emsg[256], tmp[4096], ext_incdir[MAX_NAME_LENGTH];
+extern char *unfolded_buffer, emsg[256], tmp[4096];
 extern FILE *file_out_ptr;
+
+extern int include_paths_count;
+extern char **include_paths;
 
 struct incbin_file_data *incbin_file_data_first = NULL, *ifd_tmp;
 struct active_file_info *active_file_info_first = NULL, *active_file_info_last = NULL, *active_file_info_tmp;
@@ -70,6 +73,50 @@ int create_full_name(char *dir, char *name) {
   return SUCCEEDED;
 }
 
+FILE *get_include_file(char *name, char **include_name) {
+  FILE *file = NULL;
+  int file_index;
+
+  /* Scan for files using the following folder priority. */
+  /* 1. Command line include directories. */
+  /* 2. Source file INCDIR paths. */
+  /* 3. Relative to the source file. */
+
+  /* 1. Command line include directories. */
+  if (use_incdir == YES) {
+    for (file_index = 0; file_index < include_paths_count; ++file_index) {
+      if (create_full_name(include_paths[file_index], name) != FAILED) {
+        file = fopen(full_name, "rb");
+
+        if (file != NULL) {
+          *include_name = full_name;
+          break;
+        }
+      }
+    }
+  }
+
+  /* 2. Source file INCDIR path. */
+  if (file == NULL && include_dir != NULL && include_dir[0] != 0) {
+    if (create_full_name(include_dir, name) != FAILED) {
+      file = fopen(full_name, "rb");
+
+      if (file != NULL)
+        *include_name = full_name;
+    }
+  }
+
+  /* 3. Relative to the source file. */
+  if (file == NULL) {
+    file = fopen(name, "rb");
+
+    if (file != NULL)
+      *include_name = name;
+  }
+
+  return file;
+}
+
 
 int include_file(char *name) {
 
@@ -78,67 +125,17 @@ int include_file(char *name) {
   char *tmp_b, *n, *tmp_c;
   FILE *f;
 
+  f = get_include_file (name, &tmp_c);
 
-  /* create the full output file name */
-  if (use_incdir == YES)
-    tmp_c = ext_incdir;
-  else
-    tmp_c = include_dir;
-
-  if (create_full_name(tmp_c, name) == FAILED)
-    return FAILED;
-
-  f = fopen(full_name, "rb");
-  id = 0;
-
-  if (f == NULL && (tmp_c == NULL || tmp_c[0] == 0)) {
+  if (f != NULL) {
+    /* Generate and store the full_name if a valid file was found. */
+    create_full_name(NULL, tmp_c);
+  }
+  else {
     sprintf(emsg, "Error opening file \"%s\".\n", name);
-    if (first_load == 0)
-      fprintf(stderr, "INCLUDE_FILE: %s", emsg);
-    else
-      print_error(emsg, ERROR_INC);
+    fprintf(stderr, "INCLUDE_FILE: %s", emsg);
+
     return FAILED;
-  }
-
-  /* if not found in ext_incdir silently try the include directory */
-  if (f == NULL && use_incdir == YES) {
-    if (create_full_name(include_dir, name) == FAILED)
-      return FAILED;
-  
-    f = fopen(full_name, "rb");
-    id = 0;
-  
-    if (f == NULL && (include_dir == NULL || include_dir[0] == 0)) {
-      sprintf(emsg, "Error opening file \"%s\".\n", name);
-      if (first_load == 0)
-        fprintf(stderr, "INCLUDE_FILE: %s", emsg);
-      else
-        print_error(emsg, ERROR_INC);
-      return FAILED;
-    }
-  }
-
-  /* if failed try to find the file in the current directory */
-  if (f == NULL) {
-    fprintf(stderr, "%s:%d: ", get_file_name(active_file_info_last->filename_id), active_file_info_last->line_current);
-    fprintf(stderr, "INCLUDE_FILE: Could not open \"%s\", trying \"%s\"... ", full_name, name);
-    f = fopen(name, "rb");
-    id = 1;
-  }
-
-  if (f == NULL) {
-    fprintf(stderr, "not found.\n");
-    sprintf(emsg, "Error opening file \"%s\".\n", full_name);
-    if (first_load == 0)
-      fprintf(stderr, "INCLUDE_FILE: %s", emsg);
-    else
-      print_error(emsg, ERROR_INC);
-    return FAILED;
-  }
-
-  if (id == 1) {
-    fprintf(stderr, "found.\n");
-    strcpy(full_name, name);
   }
 
   first_load = 1;
@@ -336,58 +333,17 @@ int incbin_file(char *name, int *id, int *swap, int *skip, int *read, struct mac
   int file_size, q;
   FILE *f;
 
-  
-  /* create the full output file name */
-  if (use_incdir == YES)
-    tmp_c = ext_incdir;
-  else
-    tmp_c = include_dir;
+  f = get_include_file(name, &tmp_c);
 
-  if (create_full_name(tmp_c, name) == FAILED)
-    return FAILED;
-
-  f = fopen(full_name, "rb");
-  q = 0;
-
-  if (f == NULL && (tmp_c == NULL || tmp_c[0] == 0)) {
+  if (f != NULL) {
+    /* Generate and store the full_name if a valid file was found. */
+    create_full_name(NULL, tmp_c);
+  }
+  else {
     sprintf(emsg, "Error opening file \"%s\".\n", name);
-    print_error(emsg, ERROR_INB);
+    fprintf(stderr, "INCLUDE_FILE: %s", emsg);
+
     return FAILED;
-  }
-
-  /* if not found in ext_incdir silently try the include directory */
-  if (f == NULL && use_incdir == YES) {
-    if (create_full_name(include_dir, name) == FAILED)
-      return FAILED;
-  
-    f = fopen(full_name, "rb");
-    q = 0;
-  
-    if (f == NULL && (include_dir == NULL || include_dir[0] == 0)) {
-      sprintf(emsg, "Error opening file \"%s\".\n", name);
-      print_error(emsg, ERROR_INB);
-      return FAILED;
-    }
-  }
-
-  /* if failed try to find the file in the current directory */
-  if (f == NULL) {
-    fprintf(stderr, "%s:%d: ", get_file_name(active_file_info_last->filename_id), active_file_info_last->line_current);
-    fprintf(stderr, "INCBIN_FILE: Could not open \"%s\", trying \"%s\"... ", full_name, name);
-    f = fopen(name, "rb");
-    q = 1;
-  }
-
-  if (f == NULL) {
-    fprintf(stderr, "not found.\n");
-    sprintf(emsg, "Error opening file \"%s\".\n", full_name);
-    print_error(emsg, ERROR_INB);
-    return FAILED;
-  }
-
-  if (q == 1) {
-    fprintf(stderr, "found.\n");
-    strcpy(full_name, name);
   }
 
   fseek(f, 0, SEEK_END);

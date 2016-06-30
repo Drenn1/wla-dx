@@ -92,7 +92,9 @@ int output_format = OUTPUT_NONE, verbose_mode = OFF, test_mode = OFF;
 int extra_definitions = OFF, commandline_parsing = ON, makefile_rules = NO;
 int listfile_data = NO, quiet = NO, use_incdir = NO;
 
-char *final_name = NULL, *asm_name = NULL, ext_incdir[MAX_NAME_LENGTH];
+char *final_name = NULL, *asm_name = NULL;
+int include_paths_count = 0;
+char **include_paths = NULL;
 
 
 int main(int argc, char *argv[]) {
@@ -506,6 +508,7 @@ void procedures_at_exit(void) {
 
   /* clear the token stack, by parser / token_stack.[c|h] */
   token_stack_free(buffer_stack);
+  free_include_paths ();
 
   /* remove the tmp files */
   remove(gba_tmp_name);
@@ -636,6 +639,7 @@ int parse_and_add_definition(char *c, int contains_flag) {
 int parse_and_set_incdir(char *c, int contains_flag) {
 
   char n[MAX_NAME_LENGTH];
+  char ext_incdir[MAX_NAME_LENGTH];
   int i;
 
   /* skip the flag? */
@@ -657,7 +661,53 @@ int parse_and_set_incdir(char *c, int contains_flag) {
 #endif
   use_incdir = YES;
 
+  append_include_path(ext_incdir);
   return FAILED;
+}
+
+int append_include_path(char *path) {
+  int result = FAILED;
+
+  if (path != NULL){
+    char **new_buffer = malloc(sizeof(char *) * (include_paths_count + 1));
+
+    if (new_buffer != NULL) {
+      char *new_path = malloc(MAX_NAME_LENGTH);
+      
+      if (new_path != NULL) {
+        memcpy(new_buffer, include_paths, sizeof(char *) * (include_paths_count));
+        free(include_paths);
+        include_paths = new_buffer;
+
+        strcpy(new_path, path);
+        include_paths[include_paths_count] = new_path;
+
+        ++include_paths_count;
+        result = SUCCEEDED;
+      }
+      else{
+        /* Failed to allocate a buffer for the path. */
+        free(new_buffer);
+      }
+    }
+  }
+
+  return result;
+}
+
+void free_include_paths(void) {
+  if (include_paths != NULL) {
+    /* Delete each of the include paths. */
+    int path_index = 0;
+    for (; path_index < include_paths_count; ++path_index){
+      free(include_paths[path_index]);
+    }
+
+    /* Delete the path array. */
+    free(include_paths);
+    include_paths = NULL;
+    include_paths_count = 0;
+  }
 }
 
 /*
