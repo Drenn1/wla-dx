@@ -2374,9 +2374,11 @@ int parse_directive(void) {
         ssi = 0;
         ss = st->items;
         while (ss != NULL) {
-          sprintf(name, "%s.%s", st->name, ss->name);
-          if (add_a_new_definition(name, (double)ssi, NULL, DEFINITION_TYPE_VALUE, 0) == FAILED)
-            return FAILED;
+          if (strcmp(ss->name, "") != 0) {
+            sprintf(name, "%s.%s", st->name, ss->name);
+            if (add_a_new_definition(name, (double)ssi, NULL, DEFINITION_TYPE_VALUE, 0) == FAILED)
+              return FAILED;
+          }
           ssi += ss->size;
           ss = ss->next;
         }
@@ -2392,6 +2394,9 @@ int parse_directive(void) {
 
       if (strcaselesscmp(tmp, "INSTANCEOF") != 0) {
         entry_name = tmp;
+      }
+      else {
+        entry_name = "";
       }
 
       name_len = strlen (entry_name);
