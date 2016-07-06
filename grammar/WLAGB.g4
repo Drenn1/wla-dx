@@ -118,9 +118,9 @@ opcodeCp
     ;
 
 opcodeDec
-    :   DecOpcode byteRegister
-    |   DecOpcode wordRegister
-    |   DecOpcode registerHLLookup
+    :   DEC byteRegister
+    |   DEC wordRegister
+    |   DEC registerHLLookup
     ;
 
 opcodeInc
@@ -250,8 +250,8 @@ opcodeSub
     ;
 
 opcodeSwap
-    :   SwapOpcode byteRegister
-    |   SwapOpcode registerHLLookup
+    :   SWAP byteRegister
+    |   SWAP registerHLLookup
     ;
 
 opcodeXor
@@ -331,53 +331,7 @@ sharedWords
     :   commonSharedWords
     |   FlagNC
     |   FlagNZ
-    |   FlagZ   /*
-    |   AdcOpcode
-    |   AddOpcode
-    |   AndOpcode
-    |   BitOpcode
-    |   CallOpcode
-    |   CcfOpcode
-    |   CpOpcode
-    |   CplOpcode
-    |   DaaOpcode
-    |   DecOpcode
-    |   DiOpcode
-    |   EiOpcode
-    |   HaltOpcode
-    |   IncOpcode
-    |   JpOpcode
-    |   JrOpcode
-    |   LdOpcode
-    |   LddOpcode
-    |   LdhOpcode
-    |   LdiOpcode
-    |   NopOpcode
-    |   OrOpcode
-    |   PopOpcode
-    |   PushOpcode
-    |   ResOpcode
-    |   RetiOpcode
-    |   RetOpcode
-    |   RlaOpcode
-    |   RlOpcode
-    |   RlcaOpcode
-    |   RlcOpcode
-    |   RraOpcode
-    |   RrOpcode
-    |   RrcaOpcode
-    |   RrcOpcode
-    |   RstOpcode
-    |   SbcOpcode
-    |   ScfOpcode
-    |   SetOpcode
-    |   SlaOpcode
-    |   SraOpcode
-    |   SrlOpcode
-    |   StopOpcode
-    |   SubOpcode
-    |   SwapOpcode
-    |   XorOpcode */
+    |   FlagZ
     |   RegisterAF
     |   RegisterBC
     |   RegisterDE
@@ -395,10 +349,6 @@ sharedWords
     |   RegisterL
     ;
 
-// Redefine of Dec.
-DEC : D E C;
-SWAP : SwapOpcode;
-
 // Gameboy opcode flags.
 FlagNC : N C;
 FlagNZ : N Z;
@@ -415,7 +365,8 @@ CcfOpcode : C C F;
 CpOpcode : C P;
 CplOpcode : C P L;
 DaaOpcode : D A A;
-DecOpcode : D E C;
+// The opcode DEC is mapped to DEC from WLACommon
+// DecOpcode : D E C;
 DiOpcode : D I;
 EiOpcode : E I;
 HaltOpcode : H A L T;
@@ -450,7 +401,8 @@ SraOpcode : S R A;
 SrlOpcode : S R L;
 StopOpcode : S T O P;
 SubOpcode : S U B;
-SwapOpcode : S W A P;
+// The opcode SWAP is mapped to SWAP from WLACommon
+// SwapOpcode : S W A P;
 XorOpcode : X O R;
 
 // Registers
