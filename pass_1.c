@@ -2338,6 +2338,8 @@ int parse_directive(void) {
     struct structure *st;
     char name[512];
     int ssi = 0;
+    char *entry_name = "";
+    int name_len = 0;
 
 
     st = malloc(sizeof(struct structure));
@@ -2388,14 +2390,19 @@ int parse_directive(void) {
         return SUCCEEDED;
       }
 
-      if (tmp[strlen(tmp) - 1] == ':')
-        tmp[strlen(tmp) - 1] = 0;
+      if (strcaselesscmp(tmp, "INSTANCEOF") != 0) {
+        entry_name = tmp;
+      }
+
+      name_len = strlen (entry_name);
+      if (name_len > 1 && entry_name[name_len - 1] == ':')
+        entry_name[name_len - 1] = 0;
 
       /* check for duplicate labels */
       ss = st->items;
       while (ss != NULL) {
-        if (strcmp(ss->name, tmp) == 0) {
-          sprintf(emsg, "Duplicate label \"%s\" inside .STRUCT \"%s\".\n", tmp, st->name);
+        if (strcmp(ss->name, entry_name) == 0) {
+          sprintf(emsg, "Duplicate label \"%s\" inside .STRUCT \"%s\".\n", entry_name, st->name);
           print_error(emsg, ERROR_DIR);
           return FAILED;
         }
@@ -2408,7 +2415,7 @@ int parse_directive(void) {
         return FAILED;
       }
       si->next = NULL;
-      strcpy(si->name, tmp);
+      strcpy(si->name, entry_name);
 
       if (st->items == NULL)
         st->items = si;
@@ -2416,9 +2423,11 @@ int parse_directive(void) {
         sl->next = si;
       sl = si;
 
-      /* get the item type */
-      if (get_next_token() == FAILED)
-        return FAILED;
+      if (strcaselesscmp(tmp, "INSTANCEOF") != 0) {
+        /* get the item type */
+        if (get_next_token() == FAILED)
+          return FAILED;
+      }
 
       if (strcaselesscmp(tmp, "DB") == 0 || strcaselesscmp(tmp, "BYT") == 0 || strcaselesscmp(tmp, "BYTE") == 0)
         si->size = 1;
@@ -2486,7 +2495,10 @@ int parse_directive(void) {
                        return FAILED;
                      }
                      sj->next = NULL;
-                     sprintf(sj->name, "%s.%s", si->name, sti->name);
+                     if (strcmp(si->name, "") == 0)
+                       sprintf(sj->name, "%s", sti->name);
+                     else
+                       sprintf(sj->name, "%s.%s", si->name, sti->name);
                      sj->size = 0;
                      
                      if (sl != NULL)
@@ -2501,10 +2513,18 @@ int parse_directive(void) {
                     return FAILED;
                   }
                   sj->next = NULL;
-                  if (arr == 1)
-                     sprintf(sj->name, "%s.%s", si->name, sti->name);
-                  else
-                     sprintf(sj->name, "%s.%i.%s", si->name, j + 1, sti->name);
+                  if (arr == 1) {
+                    if (strcmp(si->name, "") == 0)
+                      sprintf(sj->name, "%s", sti->name);
+                    else
+                      sprintf(sj->name, "%s.%s", si->name, sti->name);
+                  }
+                  else {
+                    if (strcmp(si->name, "") == 0)
+                      sprintf(sj->name, "%i.%s", j + 1, sti->name);
+                    else
+                      sprintf(sj->name, "%s.%i.%s", si->name, j + 1, sti->name);
+                  }
                   sj->size = sti->size;
                   
                   if (sl != NULL)
