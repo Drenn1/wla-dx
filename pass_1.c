@@ -2406,7 +2406,7 @@ int parse_directive(void) {
       /* check for duplicate labels */
       ss = st->items;
       while (ss != NULL) {
-        if (strcmp(ss->name, entry_name) == 0) {
+        if (strcmp(entry_name, "") != 0 && strcmp(ss->name, entry_name) == 0) {
           sprintf(emsg, "Duplicate label \"%s\" inside .STRUCT \"%s\".\n", entry_name, st->name);
           print_error(emsg, ERROR_DIR);
           return FAILED;
