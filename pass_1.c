@@ -771,6 +771,7 @@ int evaluate_token(void) {
 
   token_stack_push_state(buffer_stack);
   expand_define_token_buffer(buffer_stack);
+  adjust_whitespace_for_opcode (buffer_stack);
   result = evaluate_opcode();
 
   if (result == EVALUATE_TOKEN_NOT_IDENTIFIED){
@@ -783,6 +784,76 @@ int evaluate_token(void) {
     token_stack_pop_state(buffer_stack, 1);
 
   return result;
+}
+
+void adjust_whitespace_for_opcode (struct token_stack_root *token_buffer) {
+  /* Remove any leading whitespace on opcode statements around add/sub/comma operators beyond the first comma
+     or inside square brackets. */
+  char current_token;
+  char temp_buffer[4096];
+  int adjusted_count = 0;
+  int buffer_size = 0;
+  int bracket_scope = 0;
+
+  token_stack_push_state(token_buffer);
+
+  current_token = token_stack_get_current_token(token_buffer);
+  while (current_token != 0x0A && current_token != 0x00){
+    if (current_token == '[') {
+      ++bracket_scope;
+    }
+    else if (current_token == ']'){
+      --bracket_scope;
+    }
+    if (current_token == ',' || current_token == '+' || current_token == '-' || bracket_scope > 0){
+      /* Note: allow the first character to be a space, since this is starting at the token right after the opcode */
+      if (buffer_size > 1 && temp_buffer [buffer_size - 1] == ' '){
+        /* Found a space move backward to clear it */
+        --buffer_size;
+        ++adjusted_count;
+      }
+    }
+
+    temp_buffer [buffer_size] = current_token;
+    ++buffer_size;
+
+    token_stack_move(token_buffer, 1);
+    current_token = token_stack_get_current_token(token_buffer);
+  }
+
+  if (adjusted_count > 0) {
+    int restore_offset;
+    struct token_stack_entry *current_entry = token_buffer->active_entry;
+    temp_buffer[buffer_size] = 0;
+    ++buffer_size;
+
+    restore_offset = token_buffer->active_entry->buffer_offset;
+    token_stack_pop_state(token_buffer, 0);
+
+    if (current_entry == token_buffer->active_entry){
+      restore_offset -= token_buffer->active_entry->buffer_offset;
+    }
+    else{
+      /* TODO: clean up this path */
+      /* It's a special case to move through the previous buffer layer if the buffer was fully exhausted */
+      restore_offset = strlen(token_buffer->active_entry->buffer_root) - token_buffer->active_entry->buffer_offset;
+    }
+
+    struct token_stack_entry *new_entry = NULL;
+    char *active_string = malloc(buffer_size);
+    memcpy(active_string, temp_buffer, buffer_size);
+
+    /* printf ("OPCODE LINE: '%s'\n", active_string); */
+
+    token_buffer->active_entry->restore_offset = restore_offset;
+    new_entry = token_stack_push(token_buffer, active_string, 0);
+    if (new_entry != NULL){
+      new_entry->buffer_allocated = 1;
+    }
+  }
+  else{
+    token_stack_pop_state(token_buffer, 0);
+  }
 }
 
 int is_soft_delimiter(char delimiter){

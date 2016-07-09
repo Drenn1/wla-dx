@@ -548,18 +548,6 @@ int preprocess_file(char *input, char *input_end, char *out_buffer, int *out_siz
   /* this is set to 1 when the parser finds a non white space symbol on the line it's parsing */
   register int got_chars_on_line = 0;
 
-  /* values for z - z tells us the state of the preprocessor on the line it is processing
-     the value of z is 0 at the beginning of a new line, and can only grow: 0 -> 1 -> 2 -> 3
-     0 - new line
-     1 - 1+ characters on the line
-     2 - extra white space removed
-     3 - again 1+ characters follow */
-  register int z = 0;
-
-#if defined(W65816) || defined(SPC700)
-  register int square_bracket_open = 0;
-#endif
-
   char *output = out_buffer;
 
   while (input < input_end) {
@@ -644,8 +632,6 @@ int preprocess_file(char *input, char *input_end, char *out_buffer, int *out_siz
       for ( ; input < input_end && (*input == ' ' || *input == 0x09); input++)
 	;
       got_chars_on_line = 1;
-      if (z == 1)
-	z = 2;
       break;
     case 0x0A:
       /* take away white space from the end of the line */
@@ -658,10 +644,6 @@ int preprocess_file(char *input, char *input_end, char *out_buffer, int *out_siz
       output++;
       /* moving on to a new line */
       got_chars_on_line = 0;
-      z = 0;
-#if defined(W65816) || defined(SPC700)
-      square_bracket_open = 0;
-#endif
       break;
     case 0x0D:
       input++;
@@ -748,7 +730,6 @@ int preprocess_file(char *input, char *input_end, char *out_buffer, int *out_siz
       input++;
       output++;
       got_chars_on_line = 1;
-      square_bracket_open = 1;
       break;
 #endif
     case ',':
@@ -760,15 +741,6 @@ int preprocess_file(char *input, char *input_end, char *out_buffer, int *out_siz
 	got_chars_on_line = 1;
       }
       else {
-#if defined(W65816) || defined(SPC700)
-	/* go back? */
-	if (*(output - 1) == ' ' && square_bracket_open == 1)
-	  output--;
-#else
-	/* go back? */
-	if ((z == 3 || *input == ',') && *(output - 1) == ' ')
-	  output--;
-#endif
 	*output = *input;
 	input++;
 	output++;
@@ -783,11 +755,6 @@ int preprocess_file(char *input, char *input_end, char *out_buffer, int *out_siz
       output++;
       got_chars_on_line = 1;
 
-      /* mode changes... */
-      if (z == 0)
-	z = 1;
-      else if (z == 2)
-	z = 3;
       break;
     }
   }
