@@ -824,6 +824,10 @@ void adjust_whitespace_for_opcode (struct token_stack_root *token_buffer) {
   if (adjusted_count > 0) {
     int restore_offset;
     struct token_stack_entry *current_entry = token_buffer->active_entry;
+
+    struct token_stack_entry *new_entry = NULL;
+    char *active_string = NULL;
+
     temp_buffer[buffer_size] = 0;
     ++buffer_size;
 
@@ -839,8 +843,8 @@ void adjust_whitespace_for_opcode (struct token_stack_root *token_buffer) {
       restore_offset = strlen(token_buffer->active_entry->buffer_root) - token_buffer->active_entry->buffer_offset;
     }
 
-    struct token_stack_entry *new_entry = NULL;
-    char *active_string = malloc(buffer_size);
+    new_entry = NULL;
+    active_string = malloc(buffer_size);
     memcpy(active_string, temp_buffer, buffer_size);
 
     /* printf ("OPCODE LINE: '%s'\n", active_string); */
@@ -896,7 +900,7 @@ void expand_define_token_buffer(struct token_stack_root *token_buffer){
 
     current_entry[entry_index] = 0;
 
-    // Copy the entire entry.
+    /* Copy the entire entry. */
     memcpy(define_entry, current_entry, MAX_NAME_LENGTH);
     define_index = entry_index;
 
