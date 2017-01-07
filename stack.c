@@ -577,8 +577,13 @@ int stack_calculate(char *in, int *value, int *read_count) {
 
   /* fix the sign in every operand */
   for (b = 1, k = 0; k < q; k++) {
+
+    /* If there are 2 adjacent operands, this is often an error */
     if ((q - k) != 1 && si[k].type == STACK_ITEM_TYPE_OPERATOR && si[k + 1].type == STACK_ITEM_TYPE_OPERATOR) {
-      if (si[k].value != SI_OP_LEFT && si[k].value != SI_OP_RIGHT && si[k + 1].value != SI_OP_LEFT && si[k + 1].value != SI_OP_RIGHT) {
+      int op1 = si[k].value;
+      int op2 = si[k+1].value;
+      if (op1 != SI_OP_LEFT && op1 != SI_OP_RIGHT
+          && !(op2 == SI_OP_LEFT || op2 == SI_OP_RIGHT || op2 == SI_OP_MINUS || op2 == SI_OP_LOW_BYTE || op2 == SI_OP_HIGH_BYTE)) {
 	print_error("Error in computation syntax.\n", ERROR_STC);
 	return FAILED;
       }
