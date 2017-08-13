@@ -866,7 +866,22 @@ int parse_and_set_libdir(char *c, int contains_flag) {
 }
 
 
+/* Returns true if _WLA_EMPTYFILL_BANKNUMBER is defined. This is called before labels are
+ * put into hashmaps, so it searches manually. */
+int has_emptyfill_banknumber_definition() {
+  struct label *l = labels_first;
+
+  while (l != NULL) {
+    if (strcmp(l->name, "_WLA_EMPTYFILL_BANKNUMBER") == 0)
+      return SUCCEEDED;
+    l = l->next;
+  }
+
+  return FAILED;
+}
+
 int allocate_rom(void) {
+  struct label *l;
 
   rom = calloc(sizeof(unsigned char) * romsize, 1);
   if (rom == NULL) {
@@ -878,7 +893,17 @@ int allocate_rom(void) {
     fprintf(stderr, "ALLOCATE_ROM: Out of memory.\n");
     return FAILED;
   }
-  memset(rom, emptyfill, romsize);
+  if (has_emptyfill_banknumber_definition() == SUCCEEDED) {
+    int i;
+    unsigned char *position = rom;
+    for (i=0; i<rombanks; i++) {
+      memset(position, i, banksizes[i]);
+      position += banksizes[i];
+    }
+  }
+  else {
+    memset(rom, emptyfill, romsize);
+  }
   memset(rom_usage, 0, romsize);
 
   return SUCCEEDED;
