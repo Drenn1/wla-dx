@@ -17,8 +17,8 @@ source_suffix = '.rst'
 master_doc = 'wla-dx'
 project = u'wla-dx'
 copyright = u'2019, vhelin'
-version = '9.9' # The short X.Y version, can be used with |version|
-release = '9.9a' # The full version, including alpha/beta/rc tags, |release|
+version = '9.11' # The short X.Y version, can be used with |version|
+release = '9.11a' # The full version, including alpha/beta/rc tags, |release|
 language = None
 #today = ''
 #today_fmt = '%B %d, %Y'
@@ -92,7 +92,7 @@ man_pages = [
 ]
 
 # Autogenerate man-files for the CPUs
-for cpu in ['gb', '65c02', '6502', '6510', '65816', 'huc6280', 'spc700', 'z80']:
+for cpu in ['gb', '65c02', '6502', '6510', '65816', 'huc6280', 'spc700', 'z80', '6800', '6801', '6809', '8008', '8080']:
     man_pages.append(('man/wla-cpu', 'wla-%s' % cpu, \
                       u'WLA assembler for %s' % cpu, [u'vhelin'], 1))
 

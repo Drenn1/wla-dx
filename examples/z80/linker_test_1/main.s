@@ -6,7 +6,7 @@
 ; written by ville helin <vhelin@cc.hut.fi> in 1998-2002
 ;»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»
 
-.INCLUDE "defines.i"
+.INCLUDE defines.i
 
 ;»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»
 ; a dummy macro
@@ -21,8 +21,22 @@
 .endm
 
 .MACRO JESUS
+\._\@:
 .DB \1, " ", \2, 0
 .ENDM
+
+;»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»
+; structs with long names
+;»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»
+
+.STRUCT demo
+    ABCDEFGHIJKLMNO  DB
+    ABCDEFGHIJKLMNOP DB
+.ENDST
+
+.STRUCT ABCDEFGHIJKLMN
+    abcdefghijklmnopqrstuvwxyzabcdef INSTANCEOF demo
+.ENDST
 
 ;»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»
 ; main
@@ -54,6 +68,25 @@ _camilla
   JESUS "evil", "emperor"
 */
 
+.section "structTest"
+	ld (iy + ABCDEFGHIJKLMN.abcdefghijklmnopqrstuvwxyzabcdef.ABCDEFGHIJKLMNO), $00
+	ld (iy + ABCDEFGHIJKLMN.abcdefghijklmnopqrstuvwxyzabcdef.ABCDEFGHIJKLMNOP), $00
+
+.STRUCT MyStruct
+    ByteVal DB
+    WordVal DW	
+.ENDST
+	
+	.db "01>"
+	
+.DSTRUCT defStruct INSTANCEOF MyStruct VALUES
+    ByteVal .DB -1
+    WordVal .DW -1	
+.ENDST
+
+	.db "<01"
+	
+.ends
 
 .section "HELLO"
 .db "START >"
@@ -149,6 +182,8 @@ _loop:
 	LD	H, res 5, (   ix     +   100)
 
 	JESUS "accept", "rules ok"
+	JESUS "deny", "disobey"
+	JESUS "idle", "whatever"
 ----
 	jp	----
 .db	"HE" , 1    ,     2,3,4,5,    9

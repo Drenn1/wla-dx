@@ -160,7 +160,7 @@ keijo	bbr1	MAIN, keijo
 	tia	$0123, $4567, $89ab
 	tai	$0123, $4567, $89ab
 
-.db 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+.db 1, 2, 3, 4, 5, 6, 7, 8, 9
 
 .breakpoint
 
@@ -191,7 +191,7 @@ MORE_ACTION:
 	AND	($12),Y
 	INC	$10
 	INC	$1000
-	bbr0	MORE_ACTION, 0
+	// bbr0	MORE_ACTION, 0
 	cmp	(10)
 	stz	MORE_ACTION.w
 .ENDS
@@ -199,7 +199,7 @@ MORE_ACTION:
 
 .ORG 0
 
-.SECTION "Mohammed" FREE
+.SECTION "FooBar" FREE
 	LSR
 	LSR	A
 	LSR	10,X

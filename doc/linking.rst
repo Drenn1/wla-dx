@@ -8,7 +8,8 @@ file. WLALINK is the program you use for that. Here's how you use it::
     wlalink [OPTIONS] <LINK FILE> <OUTPUT FILE>
 
 Choose the option ``-b [OUT]`` for program file or ``-r [OUT]`` for
-ROM image linking.
+ROM image linking. ROM image is all the data in the ROM banks. Program file
+is the data between the first used byte and the last used byte.
 
 Link file is a text file that contains information about the files you want
 to link together. Here's the format:
@@ -87,6 +88,11 @@ If flag ``d`` is used, WLALINK discards all unreferenced ``FREE``, ``SEMIFREE``,
 libraries to your project and WLALINK will choose only the used sections, so you
 won't be linking any dead code/data.
 
+If flag ``t`` is used with ``c64PRG``, WLALINK will add a two byte header to the
+program file (use with flag ``b``). The header contains the load address for
+the PRG. Use the flag ``a`` to specify the load address. It can be a value or
+the name of a label.
+
 If flag ``i`` is given, WLALINK will write list files. Note that you must
 compile the object and library files with ``-i`` flag as well. Otherwise
 WLALINK has no extra information it needs to build list files. Here is an
@@ -148,3 +154,4 @@ Examples::
     [seravy@localhost tbp]# wlalink -r linkfile testa.sfc
     [seravy@localhost tbp]# wlalink -d -i -b linkfile testb.sfc
     [seravy@localhost tbp]# wlalink -v -S -L ../../lib linkfile testc.sfc
+    [seravy@localhost tbp]# wlalink -v -b -s -t c64PRG -a LOAD_ADDRESS linkfile linked.prg

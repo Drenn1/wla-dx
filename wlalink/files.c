@@ -8,7 +8,13 @@
 #include "parse.h"
 #include "files.h"
 #include "analyze.h"
+#include "write.h"
 
+#ifdef AMIGA
+#include "/printf.h"
+#else
+#include "../printf.h"
+#endif
 
 
 extern struct object_file *obj_first, *obj_last, *obj_tmp;
@@ -25,7 +31,7 @@ char file_name_error[] = "???";
 int load_files(char *argv[], int argc) {
 
   int state = STATE_NONE, i, x, line, bank, slot, base, bank_defined, slot_defined, base_defined, n;
-  char tmp[1024], token[1024], tmp_token[1024 + MAX_NAME_LENGTH + 2];
+  char tmp[1024], token[1024], tmp_token[1024 + MAX_NAME_LENGTH + 2], slot_name[MAX_NAME_LENGTH + 1];
   struct label *l;
   FILE *fop, *f;
 
@@ -55,27 +61,27 @@ int load_files(char *argv[], int argc) {
 
     /* first checks */
     if (token[0] == '[') {
-      if (strcmp("[objects]", token) == 0) {
+      if (strcaselesscmp("[objects]", token) == 0) {
 	state = STATE_OBJECT;
 	continue;
       }
-      else if (strcmp("[libraries]", token) == 0) {
+      else if (strcaselesscmp("[libraries]", token) == 0) {
 	state = STATE_LIBRARY;
 	continue;
       }
-      else if (strcmp("[header]", token) == 0) {
+      else if (strcaselesscmp("[header]", token) == 0) {
 	state = STATE_HEADER;
 	continue;
       }
-      else if (strcmp("[footer]", token) == 0) {
+      else if (strcaselesscmp("[footer]", token) == 0) {
 	state = STATE_FOOTER;
 	continue;
       }
-      else if (strcmp("[definitions]", token) == 0) {
+      else if (strcaselesscmp("[definitions]", token) == 0) {
 	state = STATE_DEFINITION;
 	continue;
       }
-      else if (strcmp("[ramsections]", token) == 0) {
+      else if (strcaselesscmp("[ramsections]", token) == 0) {
 	state = STATE_RAMSECTIONS;
 	continue;
       }
@@ -114,12 +120,14 @@ int load_files(char *argv[], int argc) {
       l->alive = YES;
 
       if (get_next_number(&tmp[x], &n, &x) == FAILED) {
-	fprintf(stderr, "%s:%d: LOAD_FILES: Error in DEFINITION value.\n", argv[argc - 2], line);
-	fclose(fop);
-	return FAILED;
+        fprintf(stderr, "%s:%d: LOAD_FILES: Error in DEFINITION value.\n", argv[argc - 2], line);
+        fclose(fop);
+        free(l);
+        return FAILED;
       }
 
       l->address = n;
+      l->rom_address = n;
       add_label(l);
       continue;
     }
@@ -165,7 +173,7 @@ int load_files(char *argv[], int argc) {
     else if (state == STATE_RAMSECTIONS) {
       i = SUCCEEDED;
       while (i == SUCCEEDED) {
-	if (strcmp(token, "bank") == 0 || strcmp(token, "BANK") == 0) {
+	if (strcaselesscmp(token, "bank") == 0) {
 	  if (bank_defined == YES) {
 	    fprintf(stderr, "%s:%d: LOAD_FILES: BANK defined for the second time for a RAM section.\n", argv[argc - 2], line);
 	    fclose(fop);
@@ -179,18 +187,24 @@ int load_files(char *argv[], int argc) {
 	    return FAILED;
 	  }
 	}
-	else if (strcmp(token, "slot") == 0 || strcmp(token, "SLOT") == 0) {
+	else if (strcaselesscmp(token, "slot") == 0) {
 	  if (slot_defined == YES) {
 	    fprintf(stderr, "%s:%d: LOAD_FILES: SLOT defined for the second time for a RAM section.\n", argv[argc - 2], line);
 	    fclose(fop);
 	    return FAILED;
 	  }
 	  slot_defined = YES;
+	  slot_name[0] = 0;
 	  
 	  if (get_next_number(&tmp[x], &slot, &x) == FAILED) {
-	    fprintf(stderr, "%s:%d: LOAD_FILES: Error in SLOT number.\n", argv[argc - 2], line);
-	    fclose(fop);
-	    return FAILED;
+	    if (get_next_token(&tmp[x], token, &x) == FAILED) {
+	      fprintf(stderr, "%s:%d: LOAD_FILES: Error in SLOT number.\n", argv[argc - 2], line);
+	      fclose(fop);
+	      return FAILED;
+	    }
+
+	    strcpy(slot_name, token);
+	    slot = -1;
 	  }
 	}
 	else
@@ -224,6 +238,7 @@ int load_files(char *argv[], int argc) {
 
       strcpy(sec_fix_tmp->name, token);
       strcpy(sec_fix_tmp->file_name, argv[argc - 2]);
+      strcpy(sec_fix_tmp->slot_name, slot_name);
       sec_fix_tmp->line_number = line;
       sec_fix_tmp->bank = bank;
       sec_fix_tmp->slot = slot;
@@ -237,7 +252,7 @@ int load_files(char *argv[], int argc) {
     else if (state == STATE_LIBRARY) {
       i = SUCCEEDED;
       while (i == SUCCEEDED) {
-	if (strcmp(token, "bank") == 0 || strcmp(token, "BANK") == 0) {
+	if (strcaselesscmp(token, "bank") == 0) {
 	  if (bank_defined == YES) {
 	    fprintf(stderr, "%s:%d: LOAD_FILES: BANK defined for the second time for a library file.\n", argv[argc - 2], line);
 	    fclose(fop);
@@ -251,21 +266,27 @@ int load_files(char *argv[], int argc) {
 	    return FAILED;
 	  }
 	}
-	else if (strcmp(token, "slot") == 0 || strcmp(token, "SLOT") == 0) {
+	else if (strcaselesscmp(token, "slot") == 0) {
 	  if (slot_defined == YES) {
 	    fprintf(stderr, "%s:%d: LOAD_FILES: SLOT defined for the second time for a library file.\n", argv[argc - 2], line);
 	    fclose(fop);
 	    return FAILED;
 	  }
 	  slot_defined = YES;
+	  slot_name[0] = 0;
 	  
 	  if (get_next_number(&tmp[x], &slot, &x) == FAILED) {
-	    fprintf(stderr, "%s:%d: LOAD_FILES: Error in SLOT number.\n", argv[argc - 2], line);
-	    fclose(fop);
-	    return FAILED;
+	    if (get_next_token(&tmp[x], token, &x) == FAILED) {
+	      fprintf(stderr, "%s:%d: LOAD_FILES: Error in SLOT number.\n", argv[argc - 2], line);
+	      fclose(fop);
+	      return FAILED;
+	    }
+
+	    strcpy(slot_name, token);
+	    slot = -1;
 	  }
 	}
-	else if (strcmp(token, "base") == 0 || strcmp(token, "BASE") == 0) {
+	else if (strcaselesscmp(token, "base") == 0) {
 	  if (base_defined == YES) {
 	    fprintf(stderr, "%s:%d: LOAD_FILES: BASE defined for the second time for a library file.\n", argv[argc - 2], line);
 	    fclose(fop);
@@ -306,16 +327,16 @@ int load_files(char *argv[], int argc) {
       
         /* use the current working directory if the library isn't found in the ext_libdir directory */
         if (f == NULL)
-          sprintf(tmp_token, "%s%s", ext_libdir, token);
+          snprintf(tmp_token, sizeof(tmp_token), "%s%s", ext_libdir, token);
         else {
-          sprintf(tmp_token, "%s", token);
+          snprintf(tmp_token, sizeof(tmp_token), "%s", token);
 	  fclose(f);
 	}
       }
       else
-        sprintf(tmp_token, "%s", token);
-      
-      if (load_file(tmp_token, bank, slot, base, base_defined) == FAILED) {
+        snprintf(tmp_token, sizeof(tmp_token), "%s", token);
+
+      if (load_file(tmp_token, bank, slot, slot_name, YES, base, base_defined) == FAILED) {
 	fclose(fop);
 	return FAILED;
       }
@@ -329,7 +350,7 @@ int load_files(char *argv[], int argc) {
       continue;
     }
     /* object file loading */
-    else if (load_file(token, 0, 0, 0, OFF) == FAILED) {
+    else if (load_file(token, 0, 0, NULL, NO, 0, OFF) == FAILED) {
       fclose(fop);
       return FAILED;
     }
@@ -347,7 +368,7 @@ int load_files(char *argv[], int argc) {
 }
 
 
-int load_file(char *file_name, int bank, int slot, int base, int base_defined) {
+int load_file(char *file_name, int bank, int slot, char *slot_name, int fix_slot, int base, int base_defined) {
 
   struct object_file *o;
   unsigned char *data;
@@ -359,10 +380,8 @@ int load_file(char *file_name, int bank, int slot, int base, int base_defined) {
   o = calloc(sizeof(struct object_file), 1);
   name = calloc(strlen(file_name)+1, 1);
   if (o == NULL || name == NULL) {
-    if (o != NULL)
-      free(o);
-    if (name != NULL)
-      free(name);
+    free(o);
+    free(name);
     fprintf(stderr, "LOAD_FILE: Out of memory.\n");
     return FAILED;
   }
@@ -386,6 +405,10 @@ int load_file(char *file_name, int bank, int slot, int base, int base_defined) {
   o->data_blocks = NULL;
   o->source_file_names_list = NULL;
 
+  o->slot_name[0] = 0;
+  if (slot_name != NULL)
+    strcpy(o->slot_name, slot_name);
+
   if (obj_first == NULL) {
     obj_first = o;
     obj_last = o;
@@ -398,6 +421,7 @@ int load_file(char *file_name, int bank, int slot, int base, int base_defined) {
   o->next = NULL;
   o->size = size;
   o->data = data;
+  o->fix_slot = fix_slot;
 
   strcpy(name, file_name);
   o->name = name;
@@ -423,8 +447,10 @@ int load_file_data(char *file_name, unsigned char **data, int *size) {
   fseek(fop, 0, SEEK_SET);
 
   *data = calloc(*size, 1);
-  if (*data == NULL)
+  if (*data == NULL) {
+    fclose(fop);
     return FAILED;
+  }
 
   fread(*data, 1, *size, fop);
   fclose(fop);
@@ -477,4 +503,48 @@ char *get_source_file_name(int file_id, int source_id) {
     return file_name_error;
 
   return s->name;
+}
+
+
+struct object_file *get_file(int file_id) {
+
+  struct object_file *o;
+
+  
+  o = obj_first;
+  while (o != NULL) {
+    if (o->id == file_id)
+      return o;
+    o = o->next;
+  }
+
+  fprintf(stderr, "GET_FILE: Internal error, file %d is missing!\n", file_id);
+
+  return NULL;
+}
+
+
+int convert_slot_names_and_addresses() {
+
+  struct object_file *o;
+
+  
+  o = obj_first;
+  while (o != NULL) {
+    if (o->fix_slot) {
+      if (o->slot < 0) {
+	if (get_slot_by_its_name(o->slot_name, &(o->slot)) == FAILED)
+	  return FAILED;
+      }
+      else {
+	/* here o->slot, given in the linkfile, might be $2000, so we'll need to find its SLOT number */
+	if (get_slot_by_a_value(o->slot, &(o->slot)) == FAILED)
+	  return FAILED;
+      }
+    }
+    
+    o = o->next;
+  }
+  
+  return SUCCEEDED;
 }

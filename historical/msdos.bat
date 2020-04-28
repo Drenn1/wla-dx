@@ -36,9 +36,34 @@ make
 move wla-65c02.exe binaries\
 make clean
 
+copy makefiles\makefile.msdos.65ce02 MAKEFILE
+make
+move wla-65ce02.exe binaries\
+make clean
+
 copy makefiles\makefile.msdos.6800 MAKEFILE
 make
 move wla-6800.exe binaries\
+make clean
+
+copy makefiles\makefile.msdos.6801 MAKEFILE
+make
+move wla-6801.exe binaries\
+make clean
+
+copy makefiles\makefile.msdos.6809 MAKEFILE
+make
+move wla-6809.exe binaries\
+make clean
+
+copy makefiles\makefile.msdos.8008 MAKEFILE
+make
+move wla-8008.exe binaries\
+make clean
+
+copy makefiles\makefile.msdos.8080 MAKEFILE
+make
+move wla-8080.exe binaries\
 make clean
 
 copy makefiles\makefile.msdos.6510 MAKEFILE

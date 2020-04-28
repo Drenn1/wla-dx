@@ -10,6 +10,10 @@
 #define HINT_16BIT 2
 #define HINT_24BIT 3
 
+#define HINT_TYPE_NONE    0
+#define HINT_TYPE_GIVEN   1
+#define HINT_TYPE_DEDUCED 2
+
 #define STACK_CALCULATE_DELAY 2
 #define STACK_RETURN_LABEL 1024
 
@@ -26,6 +30,7 @@
 #define GET_NEXT_TOKEN_STRING         2
 #define EVALUATE_TOKEN_NOT_IDENTIFIED 2
 #define EVALUATE_TOKEN_EOP            6
+#define DIRECTIVE_NOT_IDENTIFIED      9
 
 #define OUTPUT_OBJECT  0
 #define OUTPUT_LIBRARY 1
@@ -83,6 +88,7 @@
 /* I - macro call end      */
 /* j - rept start          */
 /* J - rept end            */
+/* v - special case ID     */
 
 /**************************************************************/
 /* gb-z80                                                     */
@@ -100,6 +106,8 @@
 /* 9 - *          16b */
 
 #define OP_SIZE_MAX 16
+#define ARCH_STR "GB-Z80"
+#define WLA_NAME "gb"
 
 #endif
 
@@ -118,6 +126,8 @@
 /* 4 - x (absolute)   */
 
 #define OP_SIZE_MAX 12
+#define ARCH_STR "6502"
+#define WLA_NAME "6502"
 
 #endif
 
@@ -137,6 +147,29 @@
 /* 5 - x-abs x-rel    */
 
 #define OP_SIZE_MAX 12
+#define ARCH_STR "WDC65C02"
+#define WLA_NAME "65c02"
+
+#endif
+
+/**************************************************************/
+/* 65CE02                                                     */
+/**************************************************************/
+
+#ifdef CSG65CE02
+
+/* opcode types */
+
+/* 0 - plain text  8b */
+/* 1 - x              */
+/* 2 - ?              */
+/* 3 - plain text 16b */
+/* 4 - x (absolute)   */
+/* 5 - x-abs x-rel    */
+
+#define OP_SIZE_MAX 12
+#define ARCH_STR "CSG65CE02"
+#define WLA_NAME "65ce02"
 
 #endif
 
@@ -159,6 +192,8 @@
 /* 8 - x-abs x-rel    */
 
 #define OP_SIZE_MAX 12
+#define ARCH_STR "HUC6280"
+#define WLA_NAME "huc6280"
 
 #endif
 
@@ -177,6 +212,8 @@
 /* 4 - x (absolute)   */
 
 #define OP_SIZE_MAX 12
+#define ARCH_STR "MSC6510"
+#define WLA_NAME "6510"
 
 #endif
 
@@ -201,6 +238,8 @@
 /* f - ? (13-bit) ~ */
 
 #define OP_SIZE_MAX 12
+#define ARCH_STR "SPC700"
+#define WLA_NAME "spc700"
 
 #endif
 
@@ -225,6 +264,8 @@
 /* a - * x        24b */
 
 #define OP_SIZE_MAX 20
+#define ARCH_STR "Z80"
+#define WLA_NAME "z80"
 
 #endif
 
@@ -243,7 +284,94 @@
 /* 4 - x (absolute)   */
 
 #define OP_SIZE_MAX 12
+#define ARCH_STR "MC6800"
+#define WLA_NAME "6800"
 
+#endif
+
+/**************************************************************/
+/* 6801                                                       */
+/**************************************************************/
+
+#ifdef MC6801
+
+/* opcode types */
+
+/* 0 - plain text  8b */
+/* 1 - x              */
+/* 2 - ?              */
+/* 3 - plain text 16b */
+/* 4 - x (absolute)   */
+
+#define OP_SIZE_MAX 12
+#define ARCH_STR "MC6801"
+#define WLA_NAME "6801"
+
+#endif
+
+/**************************************************************/
+/* 6809                                                       */
+/**************************************************************/
+
+#ifdef MC6809
+
+/* opcode types */
+
+/* 0  - plain text  8b */
+/* 1  - x              */
+/* 2  - ?              */
+/* 3  - plain text 16b */
+/* 4  - x (absolute)   */
+/* 5  - 8-bit signed operand, relative address */
+/* 6  - 5-bit signed operand, absolute address + post op byte code */
+/* 7  - 8-bit signed operand, relative address + post op byte code */
+/* 8  - 16-bit operand + post op byte code */
+/* 9  - plain text 8-bit + post op byte code */
+/* 10 - exg / tfr */
+/* 11 - pshs / pshu / puls / pulu */
+
+#define OP_SIZE_MAX 16
+#define ARCH_STR "MC6809"
+#define WLA_NAME "6809"
+
+#endif
+
+/**************************************************************/
+/* 8008                                                       */
+/**************************************************************/
+
+#ifdef I8008
+	
+/* opcode types */
+ 
+/* 0 - plain text  8b */
+/* 1 - x              */
+/* 2 - ?              */
+/* 8 - *           8b */
+ 
+#define OP_SIZE_MAX 12
+#define ARCH_STR "I8008"
+#define WLA_NAME "8008"
+	
+#endif
+
+/**************************************************************/
+/* 8080                                                       */
+/**************************************************************/
+
+#ifdef I8080
+	
+/* opcode types */
+ 
+/* 0 - plain text  8b */
+/* 1 - x              */
+/* 2 - ?              */
+/* 8 - *           8b */
+ 
+#define OP_SIZE_MAX 12
+#define ARCH_STR "I8080"
+#define WLA_NAME "8080"
+	
 #endif
 
 /**************************************************************/
@@ -267,28 +395,39 @@
 /* a - x (absolute)   */
 
 #define OP_SIZE_MAX 16
+#define ARCH_STR "W65816"
+#define WLA_NAME "65816"
 
 #endif
 
 
 struct optcode {
   char *op;
-  int  hex;
-  int  type;
+  unsigned short hex;
+  unsigned char type;
 #if defined(Z80)
-  int  hex_x;
+  unsigned char hex_x;
 #endif
-#if defined(Z80) || defined(GB)
-  int  value;
+#if defined(Z80) || defined(GB) || defined(I8008) || defined(I8080)
+  unsigned char value;
 #endif
-#if defined(MCS6502) || defined(WDC65C02) || defined(HUC6280) || defined(MCS6510) || defined(MC6800)
-  int  skip_8bit;
+#if defined(MCS6502) || defined(WDC65C02) || defined(CSG65CE02) || defined(HUC6280) || defined(MCS6510) || defined(MC6800) || defined(MC6801) || defined(MC6809)
+  unsigned char skip_8bit;
 #endif
 #if defined(W65816)
-  int  skip_xbit;
+  unsigned char skip_xbit;
+#endif
+#if defined(MC6809)
+  unsigned char addressing_mode_bits;
 #endif
 };
 
+#ifndef WLA_NAME
+  #error "Unknown WLA_NAME!"
+#endif
+#ifndef ARCH_STR
+  #error "Unknown ARCH_STR!"
+#endif
 
 #define DEFINITION_TYPE_VALUE         0
 #define DEFINITION_TYPE_STRING        1
@@ -361,6 +500,7 @@ struct label_def {
   unsigned char type;
   unsigned char symbol;
   int  section_id;
+  int  special_id;
   int  address; /* in bank */
   int  bank;
   int  slot;
@@ -424,8 +564,9 @@ struct file_name_info {
 };
 
 struct slot {
-  int address;
-  int size;
+  char name[MAX_NAME_LENGTH + 1];
+  int  address;
+  int  size;
   struct slot *next;
 };
 
@@ -435,6 +576,12 @@ struct block {
   int  filename_id;
   int  line_number;
   struct block *next;
+};
+
+struct block_name {
+  char name[MAX_NAME_LENGTH + 1];
+  int  id;
+  struct block_name *next;
 };
 
 struct stack {
@@ -453,13 +600,20 @@ struct stack {
   int section_status;
   int section_id;
   int address;
+  int special_id;
+};
+
+struct stack_item {
+  int type;
+  int sign;
+  double value;
+  char string[MAX_NAME_LENGTH + 1];
 };
 
 #define STRUCTURE_ITEM_TYPE_DATA            0
 #define STRUCTURE_ITEM_TYPE_DOTTED          1
 #define STRUCTURE_ITEM_TYPE_INSTANCEOF      2
 #define STRUCTURE_ITEM_TYPE_UNION           3
-
 
 struct structure_item {
   char name[MAX_NAME_LENGTH + 1];

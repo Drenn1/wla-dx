@@ -6,7 +6,6 @@
 
 .define MINUS_THREE -3 export
 .define MINUS_ONE = -1 EXPORT
-.define :JANK $22 export
 
 .MEMORYMAP
    DEFAULTSLOT     0
@@ -43,8 +42,8 @@ rs0b127_a	dw
 rs0b127_b	dw
 rs0b127_c	dw
 .ENDS
-	
-.RAMSECTION "RamSection 1 bank 0 slot 3 NO REF" BANK 0 SLOT 3 ALIGN 8
+
+.RAMSECTION "RamSection 1 bank 0 slot 3 NO REF" BANK 0 SLOT 3 ORGA $C002 FORCE
 rs1b0_a	dw
 rs1b0_b	db
 .ENDS
@@ -54,7 +53,7 @@ rs2b2_a	dw
 rs2b2_b	db
 .ENDS
 	
-.RAMSECTION "RamSection 3 bank 0 slot 3 YES REF" BANK 0 SLOT 3 ALIGN 8
+.RAMSECTION "RamSection 3 bank 0 slot 3 YES REF" BANK 0 SLOT 3 ORGA $C000 ALIGN 8
 rs3b0_all:	.dsb 1+2+1
 rs3b0_a	db
 rs3b0_b	dw
@@ -66,7 +65,8 @@ rs3b0_e dsw 16
 
 .RAMSECTION "RamSection 4 bank $7f slot 5 YES REF" BANK $7f SLOT 5 ALIGN 16
 rs4b127_a	db
-rs4b127_b	dw
+.		db
+.		dw
 rs4b127_c	db
 rs4b127_d dsb 16-1-2-1
 .ENDS
@@ -149,13 +149,26 @@ vertices2 instanceof point
 vertices3 instanceof point 2
 .ende
 
+
+.MACRO TryCrashWLA
+.DEFINE Index \@ export
+.ENDM
+        TryCrashWLA
+
+
 .BLOCK "Hello"
-.db "HERE>"
-.db 1, 2, MINUS_THREE * MINUS_ONE, 4, 5, MINUS_ONE, MINUS_THREE, :JANK
-.db "<HERE"
+.db "01>"
+.db 1, 2, MINUS_THREE * MINUS_ONE, 4, 5, MINUS_ONE, MINUS_THREE
+.db "<01"
 .BLOCK "Hi!"
 .db 6, 7, 8
 .dw otherVar1, points2, otherVar3, library_hook, rs3b0_a, rs4b127_c, rs7b127_b, rs0b127_c, TEST_RESULT_2
 .endb
 .endb
 
+.ENUM $FFF0 EXPORT
+scroll_x  DB
+scroll_y  DB
+player_x: DW
+player_y: DW
+.ENDE

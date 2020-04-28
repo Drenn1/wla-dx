@@ -3,7 +3,7 @@ NOTE! integers are in big endian format.
 
 
 
-WLA GB-Z80/Z80/6502/65C02/6510/65816/6800/HuC6280/SPC-700 object file format "WLAV"
+WLA GB-Z80/Z80/6502/65C02/65CE02/6510/65816/6800/6801/6809/8008/8080/HuC6280/SPC-700 object file format "WLAY"
 
 
 bytes   description
@@ -11,7 +11,7 @@ bytes   description
 header:
 
   4     format information,
-        "WLAV" - WLA GB-Z80/Z80/6502/65C02/6510/65816/6800/HuC6280/SPC-700 object file version 22 (06-Jul-2019)
+        "WLAY" - WLA GB-Z80/Z80/6502/65C02/65CE02/6510/65816/6800/6801/6809/8008/8080/HuC6280/SPC-700 object file version 24 (08-Mar-2020)
   1     empty fill
   1     misc bits (bit 0 - sms checksum (1 == compute)
                    bit 1 - snes rom mode (0 == lorom, 1 == hirom)
@@ -25,10 +25,11 @@ header:
                    bit 1 - snes sram size, lower bit
                    bit 2 - snes sram size, higher bit
                    bit 3 - sms tag (1 == inject)
-                   bit 4 - sms header (1 == inject))
+                   bit 4 - sms header (1 == inject)
                    bit 5 - snes exhirom (1 = yes)
                    bit 6 - snes exlorom (1 = yes)
                    bit 7 - endianess (1 = big endian))
+  1     extr bits (bit 0 - 65ce02 indicator (1 == 65ce02))
 
 rom bank map:
 
@@ -45,6 +46,7 @@ memory map:
   ...
   4     slot address (int)
   4     slot size (int)
+  n     slot name (0 terminated)
   ...
 
 source file name list:
@@ -85,6 +87,7 @@ outside references:
   n     label (0 terminated)
   1     type (0 = direct 16-bit, 1 = relative 8-bit, 2 = direct 8-bit, 3 = direct 24-bit,
               4 = relative 16-bit)
+  1     special case ID (0 == not a special case, 1 == Z80/GB-Z80 RST, 2 == 8008 RST, 3 == 8080 RST)
   1     file id
   1     slot number (0-255)
   4     section (0 = no section, 1+ = section id) (int)
@@ -100,7 +103,8 @@ pending calculations:
   ...
   4     id (int)
   1     result type (0 = 8-bit, 1 = 16-bit, 2 = 24-bit)
-        if bit 7 ~ 1, then the label references are relative, else absolute
+        if bit 7 == 1, then the label references are relative, else absolute
+  1     special case ID (0 == not a special case, 1 == Z80/GB-Z80 RST, 2 == 8008 RST, 3 == 8080 RST)
   4     section (0 = no section, 1+ = section id) (int)
   1     file id
   1     number of stack items
@@ -149,8 +153,8 @@ data block:
 section:
 
   n     name (terminated with 0 (free), 1 (force), 2 (overwrite), 3 (header),
-                              4 (semifree), 5 (absolute), 6 (ram),
-                              7 (superfree) or 8 (semisubfree))
+                              4 (semifree), 5 (absolute), 6 (ram free),
+                              7 (superfree), 8 (semisubfree) or 9 (ram force))
   n     namespace (terminated with 0)
   4     section id (int)
   1     slot number (0-255)
@@ -167,7 +171,7 @@ section:
 
 
 
-WLA-GB/Z80/6502/65C02/6510/65816/6800/HuC6280/SPC-700 library file format "WLA4"
+WLA-GB/Z80/6502/65C02/65CE02/6510/65816/6800/6801/6809/8008/8080/HuC6280/SPC-700 library file format "WLA7"
 
 
 bytes   description
@@ -175,9 +179,11 @@ bytes   description
 header:
 
   4     format information,
-        "WLA4" - WLA-GB/Z80/6502/65C02/6510/65816/6800/HuC6280/SPC-700 library file version 18 (06-Jul-2019)
-  1     misc bits (bit 0 - endianess (1 = big endian))
-
+        "WLA7" - WLA-GB/Z80/6502/65C02/65CE02/6510/65816/6800/6801/6809/8008/8080/HuC6280/SPC-700 library file version 19 (08-Mar-2020)
+  1     misc bits (bit 0 - endianess (1 = big endian)
+                   bit 1 - 65816 indicator (1 == 65816)
+                   bit 2 - 65ce02 indicator (1 == 65ce02))
+  
 source file name list:
 
   4     number of source file names (int)
@@ -213,6 +219,7 @@ outside references:
   n     label (0 terminated)
   1     type (0 = direct 16-bit, 1 = relative 8-bit, 2 = direct 8-bit, 3 = direct 24-bit,
               4 = relative 16-bit)
+  1     special case ID (0 == not a special case, 1 == Z80/GB-Z80 RST, 2 == 8008 RST, 3 == 8080 RST)
   4     section (1+ = section id) (int)
   1     file id
   4     line number (int)
@@ -225,7 +232,8 @@ pending calculations:
   ...
   4     id (int)
   1     result type (0 = 8-bit, 1 = 16-bit, 2 = 24-bit)
-        if bit 7 ~ 1, then the label references are relative, else absolute
+        if bit 7 == 1, then the label references are relative, else absolute
+  1     special case ID (0 == not a special case, 1 == Z80/GB-Z80 RST, 2 == 8008 RST, 3 == 8080 RST)
   4     section (1+ = section id) (int)
   1     file id
   1     number of stack items

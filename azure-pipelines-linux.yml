@@ -1,0 +1,19 @@
+# C/C++ with GCC
+# Build your C/C++ project with GCC using make.
+# Add steps that publish test results, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/apps/c-cpp/gcc
+
+trigger:
+- master
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+- script: |
+    cmake -G "Unix Makefiles"
+    make
+    chmod a+x run_tests.sh
+    chmod a+x examples/65816/nocashsns_symbol_file/check_symbols.sh
+    ./run_tests.sh
+  displayName: 'make'

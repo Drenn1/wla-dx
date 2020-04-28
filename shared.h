@@ -11,6 +11,15 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+#ifndef NDEBUG
+  #define WLA_DEBUG 1
+  #define WLALINK_DEBUG 1
+#endif
+
+#ifdef _CRT_SECURE_NO_WARNINGS
+  #pragma warning(disable:4996) /* Just in case */
+#endif
+
 #define FAILED    0
 #define SUCCEEDED 1
 
@@ -44,25 +53,20 @@
 #define SI_OP_XOR         12
 #define SI_OP_LOW_BYTE    13
 #define SI_OP_HIGH_BYTE   14
+#define SI_OP_NOT         15
+#define SI_OP_BANK        16
 
 #define SI_SIGN_POSITIVE 0
 #define SI_SIGN_NEGATIVE 1
 
-#define STACKS_TYPE_8BIT    0
-#define STACKS_TYPE_16BIT   1
-#define STACKS_TYPE_24BIT   2
-#define STACKS_TYPE_UNKNOWN 3
-#define STACKS_TYPE_13BIT   4
+#define STACK_TYPE_8BIT    0
+#define STACK_TYPE_16BIT   1
+#define STACK_TYPE_24BIT   2
+#define STACK_TYPE_UNKNOWN 3
+#define STACK_TYPE_13BIT   4
 
 #define STACK_POSITION_DEFINITION 0
 #define STACK_POSITION_CODE       1
-
-struct stack_item {
-  int type;
-  int sign;
-  double value;
-  char string[MAX_NAME_LENGTH + 1];
-};
 
 struct namespace_def {
   char name[MAX_NAME_LENGTH + 1];
@@ -82,9 +86,10 @@ struct label_sizeof {
 #define SECTION_STATUS_HEADER      3
 #define SECTION_STATUS_SEMIFREE    4
 #define SECTION_STATUS_ABSOLUTE    5
-#define SECTION_STATUS_RAM         6
+#define SECTION_STATUS_RAM_FREE    6
 #define SECTION_STATUS_SUPERFREE   7
 #define SECTION_STATUS_SEMISUBFREE 8
+#define SECTION_STATUS_RAM_FORCE   9
 
 #define REFERENCE_TYPE_DIRECT_16BIT   0
 #define REFERENCE_TYPE_RELATIVE_8BIT  1

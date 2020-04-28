@@ -12,6 +12,8 @@
 #include "pass_4.h"
 #include "parse.h"
 #include "stack.h"
+#include "printf.h"
+
 
 extern struct section_def *sections_first, *sections_last, *sec_tmp, *sec_next;
 extern struct incbin_file_data *incbin_file_data_first, *ifd_tmp;
@@ -68,8 +70,9 @@ struct label_sizeof *label_sizeof_tmp;
 char mem_insert_action[MAX_NAME_LENGTH*3 + 1024];
 
 int pc_bank = 0, pc_full = 0, rom_bank, mem_insert_overwrite, slot = 0, base = 0, pc_slot, pc_slot_max;
-int dstruct_start = -1;
 int filename_id, line_number;
+
+static int dstruct_start = -1, special_id = 0;
 
 
 #define WRITEOUT_OV fprintf(final_ptr, "%c%c%c%c", (ov>>24)&0xFF, (ov>>16)&0xFF, (ov>>8)&0xFF, ov&0xFF);
@@ -127,6 +130,7 @@ int new_unknown_reference(int type) {
   label->bank = rom_bank;
   label->slot = slot;
   label->base = base;
+  label->special_id = special_id;
 
   /* outside bank header section */
   if (bankheader_status == OFF) {
@@ -216,6 +220,12 @@ int pass_4(void) {
   while (fread(&c, 1, 1, file_out_ptr) != 0) {
     switch (c) {
 
+      /* SPECIAL CASE ID */
+      
+      case 'v':
+        fscanf(file_out_ptr, "%d ", &special_id);	
+        continue;
+      
       case 'E':
         continue;
 
@@ -329,7 +339,7 @@ int pass_4(void) {
         fscanf(file_out_ptr, "%d %d", &ind, &x);
 
 	/* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	sprintf(mem_insert_action, "%s:%d: Writing DSB data", get_file_name(filename_id), line_number);
+	snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Writing DSB data", get_file_name(filename_id), line_number);
 
         if (ind < 0) { /* going backward */
           if (section_status == ON)
@@ -363,7 +373,7 @@ int pass_4(void) {
         inz = (inz >> 8) & 0xFF;
 
 	/* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	sprintf(mem_insert_action, "%s:%d: Writing DSW data", get_file_name(filename_id), line_number);
+	snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Writing DSW data", get_file_name(filename_id), line_number);
 
 	while (ind > 0) {
 	  if (little_endian == YES) {
@@ -392,7 +402,7 @@ int pass_4(void) {
         inz = (inz >> 16) & 0xFF;
 
 	/* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	sprintf(mem_insert_action, "%s:%d: Writing DSL data", get_file_name(filename_id), line_number);
+	snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Writing DSL data", get_file_name(filename_id), line_number);
 
 	while (ind > 0) {
 	  if (little_endian == YES) {
@@ -424,7 +434,7 @@ int pass_4(void) {
         fscanf(file_out_ptr, "%d", &x);
 
 	/* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	sprintf(mem_insert_action, "%s:%d: Writing a byte", get_file_name(filename_id), line_number);
+	snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Writing a byte", get_file_name(filename_id), line_number);
 	
         if (mem_insert(x) == FAILED)
           return FAILED;
@@ -437,7 +447,7 @@ int pass_4(void) {
         inz = (inz >> 8) & 0xFF;
 
 	/* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	sprintf(mem_insert_action, "%s:%d: Writing two bytes", get_file_name(filename_id), line_number);
+	snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Writing two bytes", get_file_name(filename_id), line_number);
 
 	if (little_endian == YES) {
 	  if (mem_insert(x) == FAILED)
@@ -467,7 +477,7 @@ int pass_4(void) {
         inz = (inz >> 16) & 0xFF;
 
 	/* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	sprintf(mem_insert_action, "%s:%d: Writing three bytes", get_file_name(filename_id), line_number);
+	snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Writing three bytes", get_file_name(filename_id), line_number);
 
 	if (little_endian == YES) {
 	  if (mem_insert(x) == FAILED)
@@ -501,7 +511,7 @@ int pass_4(void) {
         t = ifd_tmp->data + z;
 
 	/* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	sprintf(mem_insert_action, "%s:%d: Writing .INCBIN data", get_file_name(filename_id), line_number);
+	snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Writing .INCBIN data", get_file_name(filename_id), line_number);
 
 	/* swap? */
         if (inz == 1) {
@@ -618,8 +628,9 @@ int pass_4(void) {
 
         stacks_tmp->bank = rom_bank;
         stacks_tmp->slot = slot;
-        stacks_tmp->type = STACKS_TYPE_8BIT;
+        stacks_tmp->type = STACK_TYPE_8BIT;
         stacks_tmp->base = base;
+	stacks_tmp->special_id = special_id;
 	
         if (mangle_stack_references(stacks_tmp) == FAILED)
           return FAILED;
@@ -628,7 +639,7 @@ int pass_4(void) {
         stacks_tmp->position = STACK_POSITION_CODE;
 
 	/* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	sprintf(mem_insert_action, "%s:%d: Inserting padding for an 8-bit computation", get_file_name(filename_id), line_number);
+	snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Inserting padding for an 8-bit computation", get_file_name(filename_id), line_number);
 	
         if (mem_insert_padding() == FAILED)
           return FAILED;
@@ -667,7 +678,7 @@ int pass_4(void) {
 
         stacks_tmp->bank = rom_bank;
         stacks_tmp->slot = slot;
-        stacks_tmp->type = STACKS_TYPE_16BIT;
+        stacks_tmp->type = STACK_TYPE_16BIT;
         stacks_tmp->base = base;
 	
         if (mangle_stack_references(stacks_tmp) == FAILED)
@@ -677,7 +688,7 @@ int pass_4(void) {
         stacks_tmp->position = STACK_POSITION_CODE;
 
 	/* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	sprintf(mem_insert_action, "%s:%d: Inserting padding for a 16-bit computation", get_file_name(filename_id), line_number);
+	snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Inserting padding for a 16-bit computation", get_file_name(filename_id), line_number);
 
 	if (mem_insert_padding() == FAILED)
           return FAILED;
@@ -719,7 +730,7 @@ int pass_4(void) {
 
         stacks_tmp->bank = rom_bank;
         stacks_tmp->slot = slot;
-        stacks_tmp->type = STACKS_TYPE_13BIT;
+        stacks_tmp->type = STACK_TYPE_13BIT;
         stacks_tmp->base = base;
 	
         if (mangle_stack_references(stacks_tmp) == FAILED)
@@ -729,7 +740,7 @@ int pass_4(void) {
         stacks_tmp->position = STACK_POSITION_CODE;
 
 	/* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	sprintf(mem_insert_action, "%s:%d: Inserting padding for a 13-bit computation", get_file_name(filename_id), line_number);
+	snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Inserting padding for a 13-bit computation", get_file_name(filename_id), line_number);
 
 	if (mem_insert(0x00) == FAILED)
           return FAILED;
@@ -771,7 +782,7 @@ int pass_4(void) {
 
         stacks_tmp->bank = rom_bank;
         stacks_tmp->slot = slot;
-        stacks_tmp->type = STACKS_TYPE_24BIT;
+        stacks_tmp->type = STACK_TYPE_24BIT;
         stacks_tmp->base = base;
 
         if (mangle_stack_references(stacks_tmp) == FAILED)
@@ -781,7 +792,7 @@ int pass_4(void) {
         stacks_tmp->position = STACK_POSITION_CODE;
 
 	/* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	sprintf(mem_insert_action, "%s:%d: Inserting padding for a 24-bit computation", get_file_name(filename_id), line_number);
+	snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Inserting padding for a 24-bit computation", get_file_name(filename_id), line_number);
 
 	if (mem_insert_padding() == FAILED)
           return FAILED;
@@ -809,7 +820,7 @@ int pass_4(void) {
             x = 1;
 
 	    /* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	    sprintf(mem_insert_action, "%s:%d: Writing a 24-bit reference", get_file_name(filename_id), line_number);
+	    snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Writing a 24-bit reference", get_file_name(filename_id), line_number);
 
 	    if (little_endian == YES) {
 	      if (mem_insert(o & 0xFF) == FAILED)
@@ -837,7 +848,7 @@ int pass_4(void) {
           return FAILED;
 
 	/* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	sprintf(mem_insert_action, "%s:%d: Inserting padding for a 24-bit reference", get_file_name(filename_id), line_number);
+	snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Inserting padding for a 24-bit reference", get_file_name(filename_id), line_number);
 
 	if (mem_insert_padding() == FAILED)
           return FAILED;
@@ -848,7 +859,6 @@ int pass_4(void) {
 
         continue;
 
-#ifdef W65816
         /* 16BIT PC RELATIVE REFERENCE */
 
       case 'M':
@@ -862,11 +872,11 @@ int pass_4(void) {
             return FAILED;
           }
           else if (tmp_def->type != DEFINITION_TYPE_STACK) {
-            o = tmp_def->value;
+            o = (int)tmp_def->value;
             x = 1;
 
 	    /* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	    sprintf(mem_insert_action, "%s:%d: Writing a 16-bit reference", get_file_name(filename_id), line_number);
+	    snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Writing a 16-bit reference", get_file_name(filename_id), line_number);
 
 	    if (little_endian == YES) {
 	      if (mem_insert(o & 0xFF) == FAILED)
@@ -890,7 +900,7 @@ int pass_4(void) {
           return FAILED;
 
 	/* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	sprintf(mem_insert_action, "%s:%d: Inserting padding for a 16-bit reference", get_file_name(filename_id), line_number);
+	snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Inserting padding for a 16-bit reference", get_file_name(filename_id), line_number);
 
 	if (mem_insert_padding() == FAILED)
           return FAILED;
@@ -898,7 +908,6 @@ int pass_4(void) {
           return FAILED;
 
         continue;
-#endif
 
         /* 16BIT REFERENCE */
 
@@ -917,7 +926,7 @@ int pass_4(void) {
             x = 1;
 
 	    /* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	    sprintf(mem_insert_action, "%s:%d: Writing a 16-bit reference", get_file_name(filename_id), line_number);
+	    snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Writing a 16-bit reference", get_file_name(filename_id), line_number);
 
 	    if (little_endian == YES) {
 	      if (mem_insert(o & 0xFF) == FAILED)
@@ -941,7 +950,7 @@ int pass_4(void) {
           return FAILED;
 
 	/* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	sprintf(mem_insert_action, "%s:%d: Inserting padding for a 16-bit reference", get_file_name(filename_id), line_number);
+	snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Inserting padding for a 16-bit reference", get_file_name(filename_id), line_number);
 
 	if (mem_insert_padding() == FAILED)
           return FAILED;
@@ -972,7 +981,7 @@ int pass_4(void) {
             }
 
 	    /* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	    sprintf(mem_insert_action, "%s:%d: Writing a 13-bit reference", get_file_name(filename_id), line_number);
+	    snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Writing a 13-bit reference", get_file_name(filename_id), line_number);
 
 	    if (mem_insert(o & 0xFF) == FAILED)
               return FAILED;
@@ -988,7 +997,7 @@ int pass_4(void) {
           return FAILED;
 
 	/* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	sprintf(mem_insert_action, "%s:%d: Inserting padding for a 13-bit reference", get_file_name(filename_id), line_number);
+	snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Inserting padding for a 13-bit reference", get_file_name(filename_id), line_number);
 
 	if (mem_insert(0x00) == FAILED)
           return FAILED;
@@ -1015,7 +1024,7 @@ int pass_4(void) {
             x = 1;
 
 	    /* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	    sprintf(mem_insert_action, "%s:%d: Writing an 8-bit reference", get_file_name(filename_id), line_number);
+	    snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Writing an 8-bit reference", get_file_name(filename_id), line_number);
 
 	    if (mem_insert(o & 0xFF) == FAILED)
               return FAILED;
@@ -1029,7 +1038,7 @@ int pass_4(void) {
           return FAILED;
 
 	/* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	sprintf(mem_insert_action, "%s:%d: Inserting padding for an 8-bit reference", get_file_name(filename_id), line_number);
+	snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Inserting padding for an 8-bit reference", get_file_name(filename_id), line_number);
 
 	if (mem_insert_padding() == FAILED)
           return FAILED;
@@ -1053,7 +1062,7 @@ int pass_4(void) {
             x = 1;
 
 	    /* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	    sprintf(mem_insert_action, "%s:%d: Writing an 8-bit reference", get_file_name(filename_id), line_number);
+	    snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Writing an 8-bit reference", get_file_name(filename_id), line_number);
 	    
 	    if (mem_insert(o & 0xFF) == FAILED)
               return FAILED;
@@ -1067,7 +1076,7 @@ int pass_4(void) {
           return FAILED;
 
 	/* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	sprintf(mem_insert_action, "%s:%d: Inserting padding for an 8-bit reference", get_file_name(filename_id), line_number);
+	snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Inserting padding for an 8-bit reference", get_file_name(filename_id), line_number);
 
 	if (mem_insert_padding() == FAILED)
           return FAILED;
@@ -1114,19 +1123,27 @@ int pass_4(void) {
   /* library file output */
   if (output_format == OUTPUT_LIBRARY && test_mode == OFF) {
     if ((final_ptr = fopen(final_name, "wb")) == NULL) {
-      fprintf(stderr, "INTERNAL_PASS_2: Error opening file \"%s\".\n", final_name);
+      fprintf(stderr, "INTERNAL_PASS_2: Error opening file \"%s\" for writing.\n", final_name);
       return FAILED;
     }
 
     /* header */
-    fprintf(final_ptr, "WLA4");
+    fprintf(final_ptr, "WLA7");
 
     /* misc bits */
     ind = 0;
 
     if (little_endian == NO)
       ind |= 1 << 0;
-
+#ifdef W65816
+    /* 65816 bit */
+    ind |= 1 << 1;
+#endif
+#ifdef CSG65CE02
+    /* 65ce02 bit */
+    ind |= 1 << 2;
+#endif
+    
     fprintf(final_ptr, "%c", ind);
     
     if (export_source_file_names(final_ptr) == FAILED)
@@ -1180,7 +1197,7 @@ int pass_4(void) {
 
     label_tmp = unknown_labels;
     while (label_tmp != NULL) {
-      fprintf(final_ptr, "%s%c%c", label_tmp->label, 0x0, label_tmp->type);
+      fprintf(final_ptr, "%s%c%c%c", label_tmp->label, 0x0, label_tmp->type, label_tmp->special_id);
 
       ov = label_tmp->section_id;
       WRITEOUT_OV;
@@ -1210,7 +1227,7 @@ int pass_4(void) {
       ov = stacks_tmp->id;
       WRITEOUT_OV;
 
-      fprintf(final_ptr, "%c", stacks_tmp->type | (stacks_tmp->relative_references << 7));
+      fprintf(final_ptr, "%c%c", stacks_tmp->type | (stacks_tmp->relative_references << 7), stacks_tmp->special_id);
 
       ov = stacks_tmp->section_id;
       WRITEOUT_OV;
@@ -1310,12 +1327,12 @@ int pass_4(void) {
   /* object file output */
   else if (output_format == OUTPUT_OBJECT && test_mode == OFF) {
     if ((final_ptr = fopen(final_name, "wb")) == NULL) {
-      fprintf(stderr, "INTERNAL_PASS_2: Error opening file \"%s\".\n", final_name);
+      fprintf(stderr, "INTERNAL_PASS_2: Error opening file \"%s\" for writing.\n", final_name);
       return FAILED;
     }
 
     /* header */
-    fprintf(final_ptr, "WLAV%c", emptyfill);
+    fprintf(final_ptr, "WLAY%c", emptyfill);
 
     /* misc bits */
     ind = 0;
@@ -1381,6 +1398,16 @@ int pass_4(void) {
     
     fprintf(final_ptr, "%c", ind);
 
+    /* extr bits */
+    ind = 0;
+
+#ifdef CSG65CE02
+    /* 65ce02 bit */
+    ind |= 1 << 0;
+#endif
+
+    fprintf(final_ptr, "%c", ind);
+    
     /* rom bank map */
     ov = rombanks;
     WRITEOUT_OV;                                   /* number of rom banks */
@@ -1407,6 +1434,10 @@ int pass_4(void) {
         WRITEOUT_OV;                               /* slot address */
         ov = slots[i].size;
         WRITEOUT_OV;                               /* slot size */
+	if (slots[i].name[0] == 0x0)               /* slot name */
+	  fprintf(final_ptr, "%c", 0x0);
+	else
+	  fprintf(final_ptr, "%s%c", slots[i].name, 0x0);
       }
     }
 
@@ -1478,7 +1509,7 @@ int pass_4(void) {
 
     label_tmp = unknown_labels;
     while (label_tmp != NULL) {
-      fprintf(final_ptr, "%s%c%c%c%c", label_tmp->label, 0x0, label_tmp->type, label_tmp->filename_id, label_tmp->slot);
+      fprintf(final_ptr, "%s%c%c%c%c%c", label_tmp->label, 0x0, label_tmp->type, label_tmp->special_id, label_tmp->filename_id, label_tmp->slot);
 
       ov = label_tmp->section_id;
       WRITEOUT_OV;
@@ -1500,7 +1531,7 @@ int pass_4(void) {
 
     label_tmp = unknown_header_labels;
     while (label_tmp != NULL) {
-      fprintf(final_ptr, "%s%c%c%c%c", label_tmp->label, 0x0, label_tmp->type, label_tmp->filename_id, label_tmp->slot);
+      fprintf(final_ptr, "%s%c%c%c%c%c", label_tmp->label, 0x0, label_tmp->type, 0, label_tmp->filename_id, label_tmp->slot);
 
       ov = label_tmp->section_id;
       WRITEOUT_OV;
@@ -1529,7 +1560,7 @@ int pass_4(void) {
       ov = stacks_tmp->id;
       WRITEOUT_OV;
 
-      fprintf(final_ptr, "%c", stacks_tmp->type | (stacks_tmp->relative_references << 7));
+      fprintf(final_ptr, "%c%c", stacks_tmp->type | (stacks_tmp->relative_references << 7), stacks_tmp->special_id);
 
       ov = stacks_tmp->section_id;
       WRITEOUT_OV;

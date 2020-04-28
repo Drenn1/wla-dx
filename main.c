@@ -1,8 +1,7 @@
 
 /*
-  wla - part of wla dx gb-z80/z80/6502/65c02/6510/65816/huc6280/spc-700
-  macro assembler package by ville helin <vhelin@iki.fi>.
-  this is gpl software.
+  wla - part of wla dx gb-z80/z80/6502/65c02/6510/6800/6801/6809/65816/huc6280/spc-700/8008/8080
+  macro assembler package by ville helin <vhelin@iki.fi>. this is gpl software.
 */
 
 #include <ctype.h>
@@ -30,6 +29,7 @@ DWORD __stdcall GetCurrentProcessId(void);
 #include "pass_4.h"
 #include "listfile.h"
 #include "hashmap.h"
+#include "printf.h"
 
 
 FILE *file_out_ptr = NULL;
@@ -37,38 +37,11 @@ FILE *file_out_ptr = NULL;
 /* amiga specific definitions */
 
 #ifdef AMIGA
-long __stack = 200000;
+__near long __stack = 200000;
 #endif
 
-#ifdef GB
-char version_string[] = "$VER: WLA-GB 9.9a (15.7.2019)";
-#endif
-#ifdef Z80
-char version_string[] = "$VER: WLA-Z80 9.9a (15.7.2019)";
-#endif
-#ifdef MCS6502
-char version_string[] = "$VER: WLA-6502 9.9a (15.7.2019)";
-#endif
-#ifdef WDC65C02
-char version_string[] = "$VER: WLA-65C02 9.9a (15.7.2019)";
-#endif
-#ifdef W65816
-char version_string[] = "$VER: WLA-65816 9.9a (15.7.2019)";
-#endif
-#ifdef MCS6510
-char version_string[] = "$VER: WLA-6510 9.9a (15.7.2019)";
-#endif
-#ifdef MC6800
-char version_string[] = "$VER: WLA-6800 9.9a (15.7.2019)";
-#endif
-#ifdef SPC700
-char version_string[] = "$VER: WLA-SPC700 9.9a (15.7.2019)";
-#endif
-#ifdef HUC6280
-char version_string[] = "$VER: WLA-HuC6280 9.9a (15.7.2019)";
-#endif
-
-char wla_version[] = "9.9a";
+char version_string[] = "$VER: wla-" WLA_NAME " 9.11a (8.3.2020)";
+char wla_version[] = "9.11a";
 
 char *tmp_name = NULL;
 
@@ -89,6 +62,7 @@ extern struct filepointer *filepointers;
 extern struct map_t *namespace_map;
 extern struct append_section *append_sections;
 extern struct label_sizeof *label_sizeofs;
+extern struct block_name *block_names;
 extern char mem_insert_action[MAX_NAME_LENGTH*3 + 1024];
 extern char *unfolded_buffer;
 extern char *include_in_tmp, *tmp_a;
@@ -116,10 +90,10 @@ int main(int argc, char *argv[]) {
   atexit(procedures_at_exit);
 
   /* init the randon number generator */
-  init_genrand(time(NULL));
+  init_genrand((unsigned long)time(NULL));
 
   /* select little/big endianess */
-#if MC6800
+#if defined(MC6800) || defined(MC6801) || defined(MC6809)
   little_endian = NO;
 #else
   little_endian = YES;
@@ -152,39 +126,13 @@ int main(int argc, char *argv[]) {
   }
   
   if (output_format == OUTPUT_NONE || parse_flags_result == FAILED) {
-#ifdef GB
-    printf("\nWLA GB-Z80 Macro Assembler v9.9a\n");
-#endif
-#ifdef Z80
-    printf("\nWLA Z80 Macro Assembler v9.9a\n");
-#endif
-#ifdef MCS6502
-    printf("\nWLA 6502 Macro Assembler v9.9a\n");
-#endif
-#ifdef WDC65C02
-    printf("\nWLA 65C02 Macro Assembler v9.9a\n");
-#endif
-#ifdef MC6800
-    printf("\nWLA 6800 Macro Assembler v9.9a\n");
-#endif
-#ifdef W65816
-    printf("\nWLA 65816 Macro Assembler v9.9a\n");
-#endif
-#ifdef MCS6510
-    printf("\nWLA 6510 Macro Assembler v9.9a\n");
-#endif
-#ifdef SPC700
-    printf("\nWLA SPC-700 Macro Assembler v9.9a\n");
-#endif
-#ifdef HUC6280
-    printf("\nWLA HuC6280 Macro Assembler v9.9a\n");
-#endif
+    printf("\nWLA " ARCH_STR " Macro Assembler v9.11a\n");
     printf("Written by Ville Helin in 1998-2008 - In GitHub since 2014: https://github.com/vhelin/wla-dx\n");
 #ifdef WLA_DEBUG
     printf("*** WLA_DEBUG defined - this executable is running in DEBUG mode ***\n");
 #endif
     printf("%s\n\n", version_string);
-    printf("USAGE: %s [OPTIONS] <ASM FILE>\n\n", argv[0]);
+    printf("USAGE: %s [OPTIONS] <OUTPUT> <ASM FILE>\n\n", argv[0]);
     printf("Options:\n");
     printf("-i  Add list file information\n");
     printf("-M  Output makefile rules\n");
@@ -192,12 +140,12 @@ int main(int argc, char *argv[]) {
     printf("-t  Test compile\n");
     printf("-v  Verbose messages\n");
     printf("-x  Extra compile time labels & definitions\n");
-    printf("-I [DIR]  Include directory\n");
-    printf("-D [DEF]  Declare definition\n\n");
-    printf("Output types:\n");
-    printf("-o [FILE]  Output object file\n");
-    printf("-l [FILE]  Output library file\n\n");
-    printf("EXAMPLE: %s -v -o main.obj main.asm\n\n", argv[0]);
+    printf("-I <DIR>  Include directory\n");
+    printf("-D <DEF>  Declare definition\n\n");
+    printf("Output:\n");
+    printf("-o <FILE>  Output object file\n");
+    printf("-l <FILE>  Output library file\n\n");
+    printf("EXAMPLE: %s -D VERSION=1 -D TWO=2 -v -o main.obj main.asm\n\n", argv[0]);
     return 0;
   }
 
@@ -210,7 +158,7 @@ int main(int argc, char *argv[]) {
 
   file_out_ptr = fopen(tmp_name, "wb");
   if (file_out_ptr == NULL) {
-    fprintf(stderr, "MAIN: Error opening file \"%s\".\n", tmp_name);
+    fprintf(stderr, "MAIN: Error opening file \"%s\" for writing.\n", tmp_name);
     return 1;
   }
 
@@ -281,8 +229,9 @@ int parse_flags(char **flags, int flagc) {
       if (count + 1 < flagc) {
         if (count + 3 < flagc) {
           if (!strcmp(flags[count+2], "=")) {
-            str_build = calloc(strlen(flags[count+1])+strlen(flags[count+3])+2, 1);
-            sprintf(str_build, "%s=%s", flags[count+1], flags[count+3]);
+	    int length = strlen(flags[count+1])+strlen(flags[count+3])+2;
+            str_build = calloc(length, 1);
+            snprintf(str_build, length, "%s=%s", flags[count+1], flags[count+3]);
             parse_and_add_definition(str_build, NO);
             free(str_build);
             count += 2;
@@ -379,6 +328,7 @@ void procedures_at_exit(void) {
   struct filepointer *f1, *f2;
   struct append_section *as;
   struct label_sizeof *ls;
+  struct block_name *bn;
   int i;
   
   /* free all the dynamically allocated data structures and close open files */
@@ -441,6 +391,13 @@ void procedures_at_exit(void) {
     ls = label_sizeofs;
   }
 
+  bn = block_names;
+  while (bn != NULL) {
+    block_names = bn->next;
+    free(bn);
+    bn = block_names;
+  }
+  
   export_tmp = export_first;
   while (export_tmp != NULL) {
     export_last = export_tmp->next;
@@ -532,14 +489,14 @@ int generate_tmp_name(char **filename) {
   int pid;
 
 #if defined(UNIX)
-    pid = (int)getpid();
+  pid = (int)getpid();
 #elif defined(WIN32)
-    pid = GetCurrentProcessId();
+  pid = GetCurrentProcessId();
 #else
-    #error "Invalid configuration!"
+  #error "Invalid configuration!"
 #endif
 
-  status = sprintf(name, ".wla%da", pid) + 1;
+  status = snprintf(name, sizeof(name)-1, ".wla%da", pid) + 1;
   if (status >= (int)sizeof(name)) {
     fprintf(stderr, "MAIN: Temp filename exceeded limit: %d >= %d! "
 	    "Aborting...\n", status, (int)sizeof(name));
@@ -589,7 +546,7 @@ int generate_extra_definitions(void) {
 
 int parse_and_add_definition(char *c, int contains_flag) {
 
-  char n[MAX_NAME_LENGTH + 1];
+  char n[MAX_NAME_LENGTH + 1], *value;
   int i;
 
   /* skip the flag? */
@@ -607,6 +564,8 @@ int parse_and_add_definition(char *c, int contains_flag) {
     if (*c == 0)
       return FAILED;
 
+    value = c;
+    
     /* hexadecimal value? */
     if (*c == '$' || ((c[strlen(c)-1] == 'h' || c[strlen(c)-1] == 'H') && (*c >= '0' && *c <= '9'))) {
       if (*c == '$')
@@ -621,7 +580,7 @@ int parse_and_add_definition(char *c, int contains_flag) {
 	else if ((*c == 'h' || *c == 'H') && *(c+1) == 0)
 	  break;
 	else {
-	  fprintf(stderr, "PARSE_AND_ADD_DEFINITION: Error in value.\n");
+	  fprintf(stderr, "PARSE_AND_ADD_DEFINITION: Error in value (%s).\n", value);
 	  return FAILED;
 	}
       }
@@ -634,15 +593,47 @@ int parse_and_add_definition(char *c, int contains_flag) {
 	if (*c >= '0' && *c <= '9')
 	  i = (i * 10) + *c - '0';
 	else {
-	  fprintf(stderr, "PARSE_AND_ADD_DEFINITION: Error in value.\n");
+	  fprintf(stderr, "PARSE_AND_ADD_DEFINITION: Error in value (%s).\n", value);
 	  return FAILED;
 	}
       }
       return add_a_new_definition(n, (double)i, NULL, DEFINITION_TYPE_VALUE, 0);
     }
 
-    /* string definition */
-    return add_a_new_definition(n, 0.0, c, DEFINITION_TYPE_STRING, (int)strlen(c));
+    /* quoted string? */
+    if (*c == '"' && c[strlen(c) - 1] == '"') {
+      int t;
+      char *s = calloc(strlen(c) + 1, 1);
+      int result;
+
+      c++;
+      for (t = 0; *c != 0; c++, t++) {
+        if (*c == '\\' && *(c + 1) == '"') {
+          c++;
+          s[t] = '"';
+        }
+	else if (*c == '"') {
+          c++;
+          break;
+        }
+	else
+          s[t] = *c;
+      }
+      s[t] = 0;
+      
+      if (*c == 0)
+        result = add_a_new_definition(n, 0.0, s, DEFINITION_TYPE_STRING, strlen(s));
+      else {
+        fprintf(stderr, "PARSE_AND_ADD_DEFINITION: Incorrectly terminated quoted string (%s).\n", value);
+        result = FAILED;
+      }
+      
+      free(s);
+      return result;
+    }
+
+    /* unquoted string */
+    return add_a_new_definition(n, 0.0, c, DEFINITION_TYPE_STRING, strlen(c));
   }
 
   return FAILED;
@@ -667,9 +658,9 @@ int parse_and_set_incdir(char *c, int contains_flag) {
 
   localize_path(n);
 #if defined(MSDOS)
-  sprintf(ext_incdir, "%s\\", n);
+  snprintf(ext_incdir, sizeof(ext_incdir), "%s\\", n);
 #else
-  sprintf(ext_incdir, "%s/", n);
+  snprintf(ext_incdir, sizeof(ext_incdir), "%s/", n);
 #endif
   use_incdir = YES;
 

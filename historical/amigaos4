@@ -37,6 +37,10 @@ make -f makefiles/makefile.amiga.65c02
 move wla-65c02 TO binaries
 
 make -f makefiles/makefile.amiga.65c02 clean
+make -f makefiles/makefile.amiga.65ce02
+move wla-65ce02 TO binaries
+
+make -f makefiles/makefile.amiga.65ce02 clean
 make -f makefiles/makefile.amiga.6510
 move wla-6510 TO binaries
 
@@ -53,6 +57,26 @@ make -f makefiles/makefile.amiga.huc6280
 move wla-huc6280 TO binaries
 
 make -f makefiles/makefile.amiga.huc6280 clean
+make -f makefiles/makefile.amiga.6800
+move wla-6800 TO binaries
+
+make -f makefiles/makefile.amiga.6800 clean
+make -f makefiles/makefile.amiga.6801
+move wla-6801 TO binaries
+
+make -f makefiles/makefile.amiga.6801 clean
+make -f makefiles/makefile.amiga.6809
+move wla-6809 TO binaries
+
+make -f makefiles/makefile.amiga.6809 clean
+make -f makefiles/makefile.amiga.8008
+move wla-8008 TO binaries
+
+make -f makefiles/makefile.amiga.8008 clean
+make -f makefiles/makefile.amiga.8080
+move wla-8080 TO binaries
+
+make -f makefiles/makefile.amiga.8080 clean
 
 echo *********************
 echo * compiling WLALINK *
@@ -63,7 +87,6 @@ make -f makefile.amiga
 make -f makefile.amiga clean
 move wlalink TO /binaries
 /
-
 
 echo *********************************************
 echo * all done! check binaries/ for the results *

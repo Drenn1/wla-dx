@@ -75,6 +75,28 @@ Opcodes that make relative label references::
     BBS*
 
 
+65CE02
+------
+
+Read the subsection :ref:`codesub6502` as the information applies also to 65CE02
+coding...
+
+Opcodes that make relative label references::
+
+    BCC
+    BCS
+    BEQ
+    BMI
+    BNE
+    BPL
+    BVC
+    BVS
+    BRA
+    BSR
+    BBR*
+    BBS*
+
+
 6510
 ----
 
@@ -133,6 +155,9 @@ Opcodes that make relative label references::
     BRA
     BRL
     PER
+
+Use ``.WDC`` to start parsing WDC standard assembly code. ``.NOWDC`` sets
+the parser to parse WLA syntax assembly code.
 
 
 HUC6280

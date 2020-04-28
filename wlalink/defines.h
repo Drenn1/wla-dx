@@ -14,8 +14,9 @@
 #define OBJ_EMPTY_FILL   4
 #define OBJ_MISC_BITS    5
 #define OBJ_MORE_BITS    6
-#define OBJ_ROMBANKS     7
-#define OBJ_ROMBANKMAP  11
+#define OBJ_EXTR_BITS    7
+#define OBJ_ROMBANKS     8
+#define OBJ_ROMBANKMAP  12
 
 #define LIB_FORMAT_INFO       0
 #define LIB_MISC_BITS         4
@@ -23,6 +24,13 @@
 
 #define OUTPUT_ROM 0
 #define OUTPUT_PRG 1
+
+#define OUTPUT_TYPE_UNDEFINED 0
+#define OUTPUT_TYPE_CBM_PRG   1
+
+#define LOAD_ADDRESS_TYPE_UNDEFINED 0
+#define LOAD_ADDRESS_TYPE_VALUE     1
+#define LOAD_ADDRESS_TYPE_LABEL     2
 
 #define SNES_ROM_MODE_LOROM 0
 #define SNES_ROM_MODE_HIROM 2
@@ -63,6 +71,7 @@ struct object_file {
   unsigned char *source_file_names;
   unsigned char *exported_defines;
   unsigned char *data_blocks;
+  char slot_name[MAX_NAME_LENGTH + 1];
   char *name;
   int rom_banks;
   int format;
@@ -71,7 +80,11 @@ struct object_file {
   int size;
   int base;
   int base_defined;
+  int little_endian;
+  int cpu_65816;
+  int cpu_65ce02;
   int id;
+  int fix_slot;
   struct source_file_name *source_file_names_list;
   struct object_file *next;
 };
@@ -120,6 +133,7 @@ struct reference {
   int  file_id;
   int  file_id_source;
   int  linenumber;
+  int  special_id;
   struct reference *next;
   struct reference *prev;
 };
@@ -156,6 +170,7 @@ struct section {
 struct section_fix {
   char name[MAX_NAME_LENGTH + 1];
   char file_name[MAX_NAME_LENGTH + 1];
+  char slot_name[MAX_NAME_LENGTH + 1];
   int  line_number;
   int  bank;
   int  slot;
@@ -166,6 +181,7 @@ struct slot {
   int address;
   int size;
   int usage;
+  char name[MAX_NAME_LENGTH + 1];
 };
 
 struct stack {
@@ -176,7 +192,10 @@ struct stack {
   int relative_references;
   int under_work;
   int computed;
-  int result;
+  int result_ram;
+  int result_rom;
+  int result_slot;
+  int result_base;
   int position;
   int file_id;
   int file_id_source;
@@ -190,6 +209,17 @@ struct stack {
   int section;
   int address;
   int memory_address;
+  int special_id;
+};
+
+struct stack_item {
+  int type;
+  int sign;
+  int slot;
+  int base;
+  double value_ram;
+  double value_rom;
+  char string[MAX_NAME_LENGTH + 1];
 };
 
 #endif /* _DEFINES_H */

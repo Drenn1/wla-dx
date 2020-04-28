@@ -9,6 +9,12 @@
 #include "memory.h"
 #include "listfile.h"
 
+#ifdef AMIGA
+#include "/printf.h"
+#else
+#include "../printf.h"
+#endif
+
 
 /* read an integer from t */
 #define READ_T (t[3] + (t[2] << 8) + (t[1] << 16) + (t[0] << 24)); t += 4;
@@ -29,7 +35,7 @@
 
 extern struct object_file *obj_first, *obj_last, *obj_tmp;
 extern struct reference *reference_first, *reference_last;
-extern struct section *sec_first, *sec_last, *sec_hd_first, *sec_hd_last;
+extern struct section *sec_first, *sec_last, *sec_bankhd_first, *sec_bankhd_last;
 extern struct stack *stacks_first, *stacks_last;
 extern struct label *labels_first, *labels_last;
 extern struct map_t *global_unique_label_map;
@@ -40,7 +46,7 @@ extern struct label_sizeof *label_sizeofs;
 extern char mem_insert_action[MAX_NAME_LENGTH*3 + 1024];
 extern int rombanks, verbose_mode, section_overwrite, symbol_mode, discard_unreferenced_sections;
 extern int emptyfill;
-extern int *banksizes, *bankaddress;
+extern int *banksizes, *bankaddress, banksize;
 
 
 
@@ -116,7 +122,7 @@ int add_section(struct section *s) {
   s->alive = YES;
 
   if (strcmp(s->name, "BANKHEADER") == 0) {
-    ss = sec_hd_first;
+    ss = sec_bankhd_first;
     while (ss != NULL) {
       if (ss->bank == s->bank) {
 	fprintf(stderr, "%s: ADD_SECTION: BANKHEADER section for bank %d was defined for the second time.\n", obj_tmp->name, s->bank);
@@ -125,13 +131,13 @@ int add_section(struct section *s) {
       ss = ss->next;
     }
 
-    if (sec_hd_first == NULL) {
-      sec_hd_first = s;
-      sec_hd_last = s;
+    if (sec_bankhd_first == NULL) {
+      sec_bankhd_first = s;
+      sec_bankhd_last = s;
     }
     else {
-      sec_hd_last->next = s;
-      sec_hd_last = s;
+      sec_bankhd_last->next = s;
+      sec_bankhd_last = s;
     }
   }
   else {
@@ -255,7 +261,7 @@ int add_label(struct label *l) {
 
 int obtain_rombankmap(void) {
 
-  int map_found = OFF, i, x, banksize, a;
+  int map_found = OFF, i, x, a;
   struct object_file *o;
   unsigned char *t;
 
@@ -382,7 +388,7 @@ int obtain_source_file_names(void) {
 int obtain_memorymap(void) {
 
   struct object_file *o;
-  int map_found = OFF, i, x;
+  int map_found = OFF, i, x, y;
   unsigned char *t;
   struct slot s[256];
 
@@ -403,6 +409,10 @@ int obtain_memorymap(void) {
 	slots[x].usage = ON;
 	slots[x].address =  READ_T;
 	slots[x].size =  READ_T;
+	for (y = 0; *t != 0; t++, y++)
+	  slots[x].name[y] = *t;
+	slots[x].name[y] = 0;
+	t++;
       }
 
       o->source_file_names = t;
@@ -434,6 +444,10 @@ int obtain_memorymap(void) {
 	s[x].usage = ON;
 	s[x].address =  READ_T;
 	s[x].size =  READ_T;
+	for (y = 0; *t != 0; t++, y++)
+	  s[x].name[y] = *t;
+	s[x].name[y] = 0;
+	t++;
       }
 
       o->source_file_names = t;
@@ -444,8 +458,19 @@ int obtain_memorymap(void) {
 	    x = 1;
 	    break;
 	  }
-	  if (slots[i].address == s[i].address && slots[i].size == s[i].size)
+	  if (slots[i].address == s[i].address && slots[i].size == s[i].size) {
+	    if (slots[i].name[0] == 0 && s[i].name[0] != 0) {
+	      /* use the name given to the other slot */
+	      strcpy(slots[i].name, s[i].name);
+	    }
+	    else if (slots[i].name[0] != 0 && s[i].name[0] != 0) {
+	      /* check that the names match */
+	      if (strcmp(slots[i].name, s[i].name) != 0)
+		fprintf(stderr, "OBTAIN_MEMORYMAP: SLOT %d has two different names (\"%s\" and \"%s\"). Using \"%s\"...\n",
+			i, slots[i].name, s[i].name, slots[i].name);
+	    }
 	    continue;
+	  }
 	  x = 1;
 	  break;
 	}
@@ -507,6 +532,7 @@ int collect_dlr(void) {
 	  l->status = LABEL_STATUS_STACK;
 	else {
 	  fprintf(stderr, "COLLECT_DLR: Unknown definition type \"%d\".\n", *t);
+	  free(l);
 	  return FAILED;
 	}
 	t++;
@@ -543,6 +569,7 @@ int collect_dlr(void) {
 	  l->status = LABEL_STATUS_BREAKPOINT;
 	else {
 	  fprintf(stderr, "COLLECT_DLR: Unknown label type \"%d\".\n", *t);
+	  free(l);
 	  return FAILED;
 	}
 
@@ -581,6 +608,7 @@ int collect_dlr(void) {
 	r->name[x] = 0;
 	t++;
 	r->type = *(t++);
+	r->special_id = *(t++);
 	r->file_id_source = *(t++);
 	r->slot = *(t++);
 	r->section = READ_T;
@@ -610,6 +638,7 @@ int collect_dlr(void) {
 
 	s->id = READ_T;
 	s->type = *(t++);
+	s->special_id = *(t++);
 	s->section = READ_T;
 	if (s->section == 0)
 	  s->section_status = OFF;
@@ -637,6 +666,8 @@ int collect_dlr(void) {
 	add_stack(s);
 
 	for (n = 0; n != x; n++) {
+	  s->stack[n].slot = -1;
+	  s->stack[n].base = -1;
 	  s->stack[n].type = *(t++);
 	  s->stack[n].sign = *(t++);
 	  if (s->stack[n].type == STACK_ITEM_TYPE_STRING) {
@@ -647,7 +678,8 @@ int collect_dlr(void) {
 	  }
 	  else {
 	    READ_DOU;
-	    s->stack[n].value = dou;
+	    s->stack[n].value_ram = dou;
+	    s->stack[n].value_rom = dou;
 	  }
 	}
       }
@@ -729,6 +761,7 @@ int collect_dlr(void) {
 	  l->status = LABEL_STATUS_STACK;
 	else {
 	  fprintf(stderr, "COLLECT_DLR: Unknown definition type \"%d\".\n", *t);
+	  free(l);
 	  return FAILED;
 	}
 	t++;
@@ -766,6 +799,7 @@ int collect_dlr(void) {
 	  l->status = LABEL_STATUS_BREAKPOINT;
 	else {
 	  fprintf(stderr, "COLLECT_DLR: Unknown label type \"%d\".\n", *t);
+	  free(l);
 	  return FAILED;
 	}
 
@@ -798,6 +832,7 @@ int collect_dlr(void) {
 	r->name[x] = 0;
 	t++;
 	r->type = *(t++);
+	r->special_id = *(t++);
 	r->section = READ_T;
 	r->section += section;
 	r->file_id_source = *(t++);
@@ -824,9 +859,14 @@ int collect_dlr(void) {
 
 	s->id = READ_T;
 	s->type = *(t++);
-	s->section_status = ON;
+	s->special_id = *(t++);
 	s->section = READ_T;
-	s->section += section;
+	if (s->section == 0)
+	  s->section_status = OFF;
+	else {
+	  s->section_status = ON;
+	  s->section += section;
+	}
 	s->file_id_source = *(t++);
 	x = *(t++);
 	s->position = *(t++);
@@ -836,7 +876,7 @@ int collect_dlr(void) {
 	s->bank = obj_tmp->bank;
 	s->slot = obj_tmp->slot;
 	s->base = obj_tmp->base;
-
+	
 	s->stack = calloc(sizeof(struct stack_item) * x, 1);
 	if (s->stack == NULL) {
 	  fprintf(stderr, "COLLECT_DLR: Out of memory.\n");
@@ -847,6 +887,8 @@ int collect_dlr(void) {
 	add_stack(s);
 
 	for (n = 0; n != x; n++) {
+	  s->stack[n].slot = -1;
+	  s->stack[n].base = -1;
 	  s->stack[n].type = *(t++);
 	  s->stack[n].sign = *(t++);
 	  if (s->stack[n].type == STACK_ITEM_TYPE_STRING) {
@@ -857,7 +899,8 @@ int collect_dlr(void) {
 	  }
 	  else {
 	    READ_DOU;
-            s->stack[n].value = dou;
+            s->stack[n].value_ram = dou;
+	    s->stack[n].value_rom = dou;
 	  }
 	}
       }
@@ -868,7 +911,7 @@ int collect_dlr(void) {
       while (i > 0) {
 	i--;
 
-	ls = calloc(1, sizeof(struct label_sizeof));
+	ls = calloc(sizeof(struct label_sizeof), 1);
 	if (ls == NULL) {
 	  fprintf(stderr, "COLLECT_DLR: Out of memory.\n");
 	  return FAILED;
@@ -1054,7 +1097,7 @@ int parse_data_blocks(void) {
           x = READ_T;
 
 	  /* create a what-we-are-doing message for mem_insert*() warnings/errors */
-	  sprintf(mem_insert_action, "Writing fixed data block from \"%s\".", obj_tmp->name);
+	  snprintf(mem_insert_action, sizeof(mem_insert_action), "Writing fixed data block from \"%s\".", obj_tmp->name);
 
 	  for (; x > 0; x--, i++)
             if (mem_insert(i, *(t++)) == FAILED)
@@ -1069,7 +1112,7 @@ int parse_data_blocks(void) {
 
           /* name */
           i = 0;
-          while (*t != 0 && *t != 1 && *t != 2 && *t != 3 && *t != 4 && *t != 5 && *t != 6 && *t != 7 && *t != 8)
+          while (*t != 0 && *t != 1 && *t != 2 && *t != 3 && *t != 4 && *t != 5 && *t != 6 && *t != 7 && *t != 8 && *t != 9)
             s->name[i++] = *(t++);
           s->name[i] = 0;
           s->status = *(t++);
@@ -1140,7 +1183,7 @@ int parse_data_blocks(void) {
 
         /* name */
         i = 0;
-        while (*t != 0 && *t != 6 && *t != 7)
+	while (*t != 0 && *t != 1 && *t != 2 && *t != 3 && *t != 4 && *t != 5 && *t != 6 && *t != 7 && *t != 8 && *t != 9)
           s->name[i++] = *(t++);
         s->name[i] = 0;
         s->status = *(t++);
@@ -1188,7 +1231,7 @@ int parse_data_blocks(void) {
         t += s->size;
 
 	/* library RAM sections have no slots nor banks unless given in [rambanks] in linkfile */
-	if (s->status == SECTION_STATUS_RAM) {
+	if (s->status == SECTION_STATUS_RAM_FREE || s->status == SECTION_STATUS_RAM_FORCE) {
 	  s->bank = -1;
 	  s->slot = -1;
 	}

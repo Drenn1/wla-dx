@@ -12,6 +12,7 @@
 #include "pass_1.h"
 #include "stack.h"
 #include "include_file.h"
+#include "printf.h"
 
 
 extern int input_number_error_msg, bankheader_status, input_float_mode;
@@ -32,9 +33,7 @@ struct stack *stacks_header_first = NULL, *stacks_header_last = NULL;
 extern int stack_inserted;
 #endif
 
-#if defined(MCS6502) || defined(W65816) || defined(MCS6510) || defined(WDC65C02) || defined(HUC6280) || defined(MC6800)
-extern int operand_hint;
-#endif
+extern int operand_hint, operand_hint_type;
 
 
 static int _stack_insert(void) {
@@ -105,6 +104,43 @@ static int _break_before_value_or_string(int i, struct stack_item *si) {
 
   return FAILED;
 }
+
+
+#if WLA_DEBUG
+static void _debug_print_stack(int line_number, int stack_id, struct stack_item *ta, int count, int id) {
+
+  int k;
+  
+  printf("LINE %5d: ID = %d (STACK) CALCULATION ID = %d (c%d): ", line_number, id, stack_id, stack_id);
+
+  for (k = 0; k < count; k++) {
+    char ar[] = "+-*()|&/^01%~<>";
+
+    if (ta[k].type == STACK_ITEM_TYPE_OPERATOR) {
+      int value = (int)ta[k].value;
+      char arr = ar[value];
+
+      /* 0 - shift left, 1 - shift right, otherwise it's the operator itself */
+      if (arr == '0')
+	printf("<<");
+      else if (arr == '1')
+	printf(">>");
+      else
+	printf("%c", arr);
+    }
+    else if (ta[k].type == STACK_ITEM_TYPE_VALUE)
+      printf("V(%f)", ta[k].value);
+    else if (ta[k].type == STACK_ITEM_TYPE_STACK)
+      printf("C(%d)", (int)ta[k].value);
+    else
+      printf("S(%s)", ta[k].string);
+
+    if (k < d-1)
+      printf(", ");
+  }
+  printf("\n");
+}
+#endif
 
 
 int stack_calculate(char *in, int *value) {
@@ -252,6 +288,12 @@ int stack_calculate(char *in, int *value) {
       q++;
       in++;
     }
+    else if (*in == ':') {
+      si[q].type = STACK_ITEM_TYPE_OPERATOR;
+      si[q].value = SI_OP_BANK;
+      q++;
+      in++;
+    }
     else if (*in == '=' && *(in + 1) == '=')
       break;
     else if (*in == '!' && *(in + 1) == '=')
@@ -263,24 +305,24 @@ int stack_calculate(char *in, int *value) {
       b++;
       in++;
     }
-#if defined(MCS6502) || defined(W65816) || defined(MCS6510) || defined(WDC65C02) || defined(HUC6280) || defined(MC6800)
-    else if (*in == '.') {
+    else if (*in == '.' && (*(in+1) == 'b' || *(in+1) == 'B' || *(in+1) == 'w' || *(in+1) == 'W' || *(in+1) == 'l' || *(in+1) == 'L')) {
       in++;
       d = operand_hint;
       if (*in == 'b' || *in == 'B') {
 	operand_hint = HINT_8BIT;
+	operand_hint_type = HINT_TYPE_GIVEN;
 	in++;
       }
       else if (*in == 'w' || *in == 'W') {
 	operand_hint = HINT_16BIT;
+	operand_hint_type = HINT_TYPE_GIVEN;
 	in++;
       }
-#if defined(W65816)
       else if (*in == 'l' || *in == 'L') {
 	operand_hint = HINT_24BIT;
+	operand_hint_type = HINT_TYPE_GIVEN;
 	in++;
       }
-#endif
       else
 	break;
 
@@ -289,10 +331,6 @@ int stack_calculate(char *in, int *value) {
 	in++;
       }
     }
-#else
-    else if (*in == '.')
-      break;
-#endif
     else if (*in == ')') {
       si[q].type = STACK_ITEM_TYPE_OPERATOR;
       si[q].value = SI_OP_RIGHT;
@@ -320,7 +358,7 @@ int stack_calculate(char *in, int *value) {
 	  break;
 	else {
 	  if (input_number_error_msg == YES) {
-	    sprintf(xyz, "Got '%c' (%d) when expected a 0 or 1.\n", e, e);
+	    snprintf(xyz, sizeof(xyz), "Got '%c' (%d) when expected a 0 or 1.\n", e, e);
 	    print_error(xyz, ERROR_NUM);
 	  }
 	  return FAILED;
@@ -339,7 +377,7 @@ int stack_calculate(char *in, int *value) {
       d = *in;
       in++;
       if (*in != '\'') {
-        sprintf(xyz, "Got '%c' (%d) when expected \"'\".\n", *in, *in);
+        snprintf(xyz, sizeof(xyz), "Got '%c' (%d) when expected \"'\".\n", *in, *in);
         print_error(xyz, ERROR_NUM);
 	return FAILED;
       }
@@ -371,7 +409,7 @@ int stack_calculate(char *in, int *value) {
 	  break;
 	else {
 	  if (input_number_error_msg == YES) {
-	    sprintf(xyz, "Got '%c' (%d) when expected [0-F].\n", e, e);
+	    snprintf(xyz, sizeof(xyz), "Got '%c' (%d) when expected [0-F].\n", e, e);
 	    print_error(xyz, ERROR_NUM);
 	  }
 	  return FAILED;
@@ -427,7 +465,7 @@ int stack_calculate(char *in, int *value) {
 	    break;
 	  else {
 	    if (input_number_error_msg == YES) {
-	      sprintf(xyz, "Got '%c' (%d) when expected [0-F].\n", e, e);
+	      snprintf(xyz, sizeof(xyz), "Got '%c' (%d) when expected [0-F].\n", e, e);
 	      print_error(xyz, ERROR_NUM);
 	    }
 	    return FAILED;
@@ -456,7 +494,7 @@ int stack_calculate(char *in, int *value) {
 	      if (n == 0)
 		print_error("Too many digits in the integer value. Max 10 is supported.\n", ERROR_NUM);
 	      else {
-		sprintf(xyz, "Too many digits in the floating point value. Max %d is supported.\n", MAX_FLOAT_DIGITS);
+		snprintf(xyz, sizeof(xyz), "Too many digits in the floating point value. Max %d is supported.\n", MAX_FLOAT_DIGITS);
 		print_error(xyz, ERROR_NUM);
 	      }
 	      return FAILED;
@@ -476,10 +514,8 @@ int stack_calculate(char *in, int *value) {
 		   e == ']' || e == 0xA)
 	    break;
 	  else if (e == '.') {
-#if defined(MCS6502) || defined(W65816) || defined(MCS6510) || defined(WDC65C02) || defined(HUC6280)
-	    if (*(in+1) == 'b' || *(in+1) == 'B' || *(in+1) == 'w' || *(in+1) == 'W')
+	    if (*(in+1) == 'b' || *(in+1) == 'B' || *(in+1) == 'w' || *(in+1) == 'W' || *(in+1) == 'l' || *(in+1) == 'L')
 	      break;
-#endif
 	    if (parse_floats == NO)
 	      break;
 	    if (n == 1) {
@@ -492,7 +528,7 @@ int stack_calculate(char *in, int *value) {
 	  }
 	  else {
 	    if (input_number_error_msg == YES) {
-	      sprintf(xyz, "Got '%c' (%d) when expected [0-9].\n", e, e);
+	      snprintf(xyz, sizeof(xyz), "Got '%c' (%d) when expected [0-9].\n", e, e);
 	      print_error(xyz, ERROR_NUM);
 	    }
 	    return FAILED;
@@ -515,7 +551,7 @@ int stack_calculate(char *in, int *value) {
 	break;
 
       si[q].sign = SI_SIGN_POSITIVE;
-      for (k = 0; k < 63; k++) {
+      for (k = 0; k < MAX_NAME_LENGTH; k++) {
 	e = *in;
 	if (e == ' ' || e == ')' || e == '|' || e == '&' || e == '+' || e == '-' || e == '*' ||
 	    e == '/' || e == ',' || e == '^' || e == '<' || e == '>' || e == '#' || e == ']' ||
@@ -610,7 +646,8 @@ int stack_calculate(char *in, int *value) {
 
   /* fix the sign in every operand */
   for (b = 1, k = 0; k < q; k++) {
-    if ((q - k) != 1 && si[k].type == STACK_ITEM_TYPE_OPERATOR && si[k + 1].type == STACK_ITEM_TYPE_OPERATOR) {
+    if ((q - k) != 1 && si[k].type == STACK_ITEM_TYPE_OPERATOR && si[k + 1].type == STACK_ITEM_TYPE_OPERATOR && si[k + 1].value != SI_OP_BANK
+        && si[k + 1].value != SI_OP_HIGH_BYTE && si[k + 1].value != SI_OP_LOW_BYTE) {
       if (si[k].value != SI_OP_LEFT && si[k].value != SI_OP_RIGHT && si[k + 1].value != SI_OP_LEFT && si[k + 1].value != SI_OP_RIGHT) {
 	print_error("Error in computation syntax.\n", ERROR_STC);
 	return FAILED;
@@ -665,6 +702,16 @@ int stack_calculate(char *in, int *value) {
       b = 1;
   }
 
+  /* turn unary XORs into NOTs */
+  for (b = 1, k = 0; k < q; k++) {
+    if (si[k].type == STACK_ITEM_TYPE_OPERATOR && si[k].value == SI_OP_XOR && b == 1)
+      si[k].value = SI_OP_NOT;
+    else if (si[k].type == STACK_ITEM_TYPE_VALUE || si[k].type == STACK_ITEM_TYPE_STRING)
+      b = 0;
+    else if (si[k].type == STACK_ITEM_TYPE_OPERATOR && si[k].value == SI_OP_LEFT)
+      b = 1;
+  }
+
   /* convert infix stack into postfix stack */
   for (b = 0, k = 0, d = 0; k < q; k++) {
     /* operands pass through */
@@ -687,7 +734,8 @@ int stack_calculate(char *in, int *value) {
 	b++;
       }
       else {
-	if (si[k].value == SI_OP_PLUS) {
+	if (si[k].value == SI_OP_PLUS ||
+	    si[k].value == SI_OP_MINUS) {
 	  b--;
 	  while (b != -1 && op[b] != SI_OP_LEFT) {
 	    ta[d].type = STACK_ITEM_TYPE_OPERATOR;
@@ -696,10 +744,38 @@ int stack_calculate(char *in, int *value) {
 	    d++;
 	  }
 	  b++;
-	  op[b] = SI_OP_PLUS;
+	  op[b] = (int)si[k].value;
 	  b++;
 	}
-	else if (si[k].value == SI_OP_MINUS) {
+	else if (si[k].value == SI_OP_LOW_BYTE ||
+		 si[k].value == SI_OP_HIGH_BYTE ||
+		 si[k].value == SI_OP_BANK) {
+	  /* unary operator, priority over everything else */
+	  op[b] = (int)si[k].value;
+	  b++;
+	}
+	else if (si[k].value == SI_OP_XOR ||
+		 si[k].value == SI_OP_AND ||
+		 si[k].value == SI_OP_OR ||
+		 si[k].value == SI_OP_MULTIPLY ||
+		 si[k].value == SI_OP_DIVIDE ||
+		 si[k].value == SI_OP_MODULO ||
+		 si[k].value == SI_OP_POWER ||
+		 si[k].value == SI_OP_SHIFT_LEFT ||
+		 si[k].value == SI_OP_SHIFT_RIGHT) {
+	  /* these operators have priority over + and - */
+	  b--;
+	  while (b != -1 && op[b] != SI_OP_LEFT && op[b] != SI_OP_PLUS && op[b] != SI_OP_MINUS) {
+	    ta[d].type = STACK_ITEM_TYPE_OPERATOR;
+	    ta[d].value = op[b];
+	    b--;
+	    d++;
+	  }
+	  b++;
+	  op[b] = (int)si[k].value;
+	  b++;
+	}
+	else if (si[k].value == SI_OP_NOT) {
 	  b--;
 	  while (b != -1 && op[b] != SI_OP_LEFT) {
 	    ta[d].type = STACK_ITEM_TYPE_OPERATOR;
@@ -708,139 +784,7 @@ int stack_calculate(char *in, int *value) {
 	    d++;
 	  }
 	  b++;
-	  op[b] = SI_OP_MINUS;
-	  b++;
-	}
-	else if (si[k].value == SI_OP_LOW_BYTE) {
-	  b--;
-	  while (b != -1 && op[b] != SI_OP_LEFT) {
-	    ta[d].type = STACK_ITEM_TYPE_OPERATOR;
-	    ta[d].value = op[b];
-	    b--;
-	    d++;
-	  }
-	  b++;
-	  op[b] = SI_OP_LOW_BYTE;
-	  b++;
-	}
-	else if (si[k].value == SI_OP_HIGH_BYTE) {
-	  b--;
-	  while (b != -1 && op[b] != SI_OP_LEFT) {
-	    ta[d].type = STACK_ITEM_TYPE_OPERATOR;
-	    ta[d].value = op[b];
-	    b--;
-	    d++;
-	  }
-	  b++;
-	  op[b] = SI_OP_HIGH_BYTE;
-	  b++;
-	}
-	else if (si[k].value == SI_OP_XOR) {
-	  b--;
-	  while (b != -1 && op[b] != SI_OP_LEFT) {
-	    ta[d].type = STACK_ITEM_TYPE_OPERATOR;
-	    ta[d].value = op[b];
-	    b--;
-	    d++;
-	  }
-	  b++;
-	  op[b] = SI_OP_XOR;
-	  b++;
-	}
-	else if (si[k].value == SI_OP_MULTIPLY) {
-	  b--;
-	  while (b != -1 && op[b] != SI_OP_LEFT && op[b] != SI_OP_PLUS && op[b] != SI_OP_MINUS) {
-	    ta[d].type = STACK_ITEM_TYPE_OPERATOR;
-	    ta[d].value = op[b];
-	    b--;
-	    d++;
-	  }
-	  b++;
-	  op[b] = SI_OP_MULTIPLY;
-	  b++;
-	}
-	else if (si[k].value == SI_OP_DIVIDE) {
-	  b--;
-	  while (b != -1 && op[b] != SI_OP_LEFT && op[b] != SI_OP_PLUS && op[b] != SI_OP_MINUS) {
-	    ta[d].type = STACK_ITEM_TYPE_OPERATOR;
-	    ta[d].value = op[b];
-	    b--;
-	    d++;
-	  }
-	  b++;
-	  op[b] = SI_OP_DIVIDE;
-	  b++;
-	}
-	else if (si[k].value == SI_OP_MODULO) {
-	  b--;
-	  while (b != -1 && op[b] != SI_OP_LEFT && op[b] != SI_OP_PLUS && op[b] != SI_OP_MINUS) {
-	    ta[d].type = STACK_ITEM_TYPE_OPERATOR;
-	    ta[d].value = op[b];
-	    b--;
-	    d++;
-	  }
-	  b++;
-	  op[b] = SI_OP_MODULO;
-	  b++;
-	}
-	else if (si[k].value == SI_OP_POWER) {
-	  b--;
-	  while (b != -1 && op[b] != SI_OP_LEFT && op[b] != SI_OP_PLUS && op[b] != SI_OP_MINUS) {
-	    ta[d].type = STACK_ITEM_TYPE_OPERATOR;
-	    ta[d].value = op[b];
-	    b--;
-	    d++;
-	  }
-	  b++;
-	  op[b] = SI_OP_POWER;
-	  b++;
-	}
-	else if (si[k].value == SI_OP_SHIFT_LEFT) {
-	  b--;
-	  while (b != -1 && op[b] != SI_OP_LEFT && op[b] != SI_OP_PLUS && op[b] != SI_OP_MINUS) {
-	    ta[d].type = STACK_ITEM_TYPE_OPERATOR;
-	    ta[d].value = op[b];
-	    b--;
-	    d++;
-	  }
-	  b++;
-	  op[b] = SI_OP_SHIFT_LEFT;
-	  b++;
-	}
-	else if (si[k].value == SI_OP_SHIFT_RIGHT) {
-	  b--;
-	  while (b != -1 && op[b] != SI_OP_LEFT && op[b] != SI_OP_PLUS && op[b] != SI_OP_MINUS) {
-	    ta[d].type = STACK_ITEM_TYPE_OPERATOR;
-	    ta[d].value = op[b];
-	    b--;
-	    d++;
-	  }
-	  b++;
-	  op[b] = SI_OP_SHIFT_RIGHT;
-	  b++;
-	}
-	else if (si[k].value == SI_OP_AND) {
-	  b--;
-	  while (b != -1 && op[b] != SI_OP_LEFT && op[b] != SI_OP_PLUS && op[b] != SI_OP_MINUS) {
-	    ta[d].type = STACK_ITEM_TYPE_OPERATOR;
-	    ta[d].value = op[b];
-	    b--;
-	    d++;
-	  }
-	  b++;
-	  op[b] = SI_OP_AND;
-	  b++;
-	}
-	else if (si[k].value == SI_OP_OR) {
-	  b--;
-	  while (b != -1 && op[b] != SI_OP_LEFT && op[b] != SI_OP_PLUS && op[b] != SI_OP_MINUS) {
-	    ta[d].type = STACK_ITEM_TYPE_OPERATOR;
-	    ta[d].value = op[b];
-	    b--;
-	    d++;
-	  }
-	  b++;
-	  op[b] = SI_OP_OR;
+	  op[b] = SI_OP_NOT;
 	  b++;
 	}
 	else if (si[k].value == SI_OP_LEFT) {
@@ -897,37 +841,6 @@ int stack_calculate(char *in, int *value) {
   printf("%d %d %s\n", d, ta[0].type, ta[0].string);
   */
 
-#if WLA_DEBUG
-  /* DEBUG output */
-  printf("LINE %5d: (STACK) CALCULATION ID = %d (c%d): ", active_file_info_last->line_current, stack_id, stack_id);
-  for (k = 0; k < d; k++) {
-    char ar[] = "+-*()|&/^01%~<>";
-
-    if (ta[k].type == STACK_ITEM_TYPE_OPERATOR) {
-      int value = (int)ta[k].value;
-      char arr = ar[value];
-
-      /* 0 - shift left, 1 - shift right, otherwise it's the operator itself */
-      if (arr == '0')
-	printf("<<");
-      else if (arr == '1')
-	printf(">>");
-      else
-	printf("%c", arr);
-    }
-    else if (ta[k].type == STACK_ITEM_TYPE_VALUE)
-      printf("V(%f)", ta[k].value);
-    else if (ta[k].type == STACK_ITEM_TYPE_STACK)
-      printf("C(%d)", (int)ta[k].value);
-    else
-      printf("S(%s)", ta[k].string);
-
-    if (k < d-1)
-      printf(", ");
-  }
-  printf("\n");
-#endif
-
   /* we have a stack full of computation and we save it for wlalink */
   stacks_tmp = calloc(sizeof(struct stack), 1);
   if (stacks_tmp == NULL) {
@@ -935,7 +848,7 @@ int stack_calculate(char *in, int *value) {
     return FAILED;
   }
   stacks_tmp->next = NULL;
-  stacks_tmp->type = STACKS_TYPE_UNKNOWN;
+  stacks_tmp->type = STACK_TYPE_UNKNOWN;
   stacks_tmp->bank = -123456;
   stacks_tmp->stacksize = d;
   stacks_tmp->relative_references = 0;
@@ -948,6 +861,7 @@ int stack_calculate(char *in, int *value) {
 
   stacks_tmp->linenumber = active_file_info_last->line_current;
   stacks_tmp->filename_id = active_file_info_last->filename_id;
+  stacks_tmp->special_id = 0;
 
   /* all stacks will be definition stacks by default. pass_4 will mark
      those that are referenced to be STACK_POSITION_CODE stacks */
@@ -975,9 +889,50 @@ int stack_calculate(char *in, int *value) {
     }
   }
 
+#if WLA_DEBUG
+  _debug_print_stack(stacks_tmp->linenumber, stack_id, stacks_tmp->stack, d, 0);
+#endif
+
   _stack_insert();
 
   return INPUT_NUMBER_STACK;
+}
+
+
+static int _resolve_string(struct stack_item *s, int *cannot_resolve) {
+
+  if (macro_active != 0) {
+    /* expand e.g., \1 and \@ */
+    if (expand_macro_arguments(s->string) == FAILED)
+      return FAILED;
+  }
+
+  hashmap_get(defines_map, s->string, (void*)&tmp_def);
+  if (tmp_def != NULL) {
+    if (tmp_def->type == DEFINITION_TYPE_STRING) {
+      snprintf(xyz, sizeof(xyz), "Definition \"%s\" is a string definition.\n", tmp_def->alias);
+      print_error(xyz, ERROR_STC);
+      return FAILED;
+    }
+    else if (tmp_def->type == DEFINITION_TYPE_STACK) {
+      /* turn this reference to a stack calculation define into a direct reference to the stack calculation as */
+      /* this way we don't have to care if the define is exported or not as stack calculations are always exported */
+      s->type = STACK_ITEM_TYPE_STACK;
+      s->sign = SI_SIGN_POSITIVE;
+      s->value = tmp_def->value;
+    }
+    else if (tmp_def->type == DEFINITION_TYPE_ADDRESS_LABEL) {
+      /* wla cannot resolve address labels (unless outside a section) -> only wlalink can do that */
+      *cannot_resolve = 1;
+      strcpy(s->string, tmp_def->string);
+    }
+    else {
+      s->type = STACK_ITEM_TYPE_VALUE;
+      s->value = tmp_def->value;
+    }
+  }
+
+  return SUCCEEDED;
 }
 
 
@@ -985,7 +940,7 @@ int resolve_stack(struct stack_item s[], int x) {
 
   struct macro_argument *ma;
   struct stack_item *st;
-  int a, b, k, q = x, cannot_resolve = 0;
+  int a, b, k, q = x, cannot_resolve = 0, try_resolve_string = NO;
   char c;
 
 
@@ -998,80 +953,63 @@ int resolve_stack(struct stack_item s[], int x) {
 	  s->value = macro_runtime_current->macro->calls - 1;
 	}
 	else {
+	  try_resolve_string = NO;
 	  for (a = 0, b = 0; s->string[a + 1] != 0 && a < 10; a++) {
 	    c = s->string[a + 1];
-	    if (c < '0' && c > '9') {
-	      print_error("Error in MACRO argument number definition.\n", ERROR_DIR);
-	      return FAILED;
+	    if (c < '0' || c > '9') {
+	      try_resolve_string = YES;
+	      break;
 	    }
 	    b = (b * 10) + (c - '0');
 	  }
-	  
-	  if (b > macro_runtime_current->supplied_arguments) {
-	    sprintf(xyz, "Reference to MACRO argument number %d is out of range.\n", b);
-	    print_error(xyz, ERROR_STC);
-	    return FAILED;
+
+	  if (try_resolve_string == YES) {
+	    if (_resolve_string(s, &cannot_resolve) == FAILED)
+	      return FAILED;
 	  }
+	  else {
+	    if (b > macro_runtime_current->supplied_arguments) {
+	      snprintf(xyz, sizeof(xyz), "Reference to MACRO argument number %d (\"%s\") is out of range.\n", b, s->string);
+	      print_error(xyz, ERROR_STC);
+	      return FAILED;
+	    }
 	  
-	  /* return the macro argument */
-	  ma = macro_runtime_current->argument_data[b - 1];
-	  k = ma->type;
+	    /* return the macro argument */
+	    ma = macro_runtime_current->argument_data[b - 1];
+	    k = ma->type;
 	  
-	  if (k == INPUT_NUMBER_ADDRESS_LABEL)
-	    strcpy(label, ma->string);
-	  else if (k == INPUT_NUMBER_STRING) {
-	    strcpy(label, ma->string);
-	    string_size = (int)strlen(ma->string);
-	  }
-	  else if (k == INPUT_NUMBER_STACK)
-	    latest_stack = ma->value;
-	  else if (k == SUCCEEDED) {
-	    d = ma->value;
-	    parsed_double = ma->value;
-	  }
+	    if (k == INPUT_NUMBER_ADDRESS_LABEL)
+	      strcpy(label, ma->string);
+	    else if (k == INPUT_NUMBER_STRING) {
+	      strcpy(label, ma->string);
+	      string_size = (int)strlen(ma->string);
+	    }
+	    else if (k == INPUT_NUMBER_STACK)
+	      latest_stack = (int)ma->value;
+	    else if (k == SUCCEEDED) {
+	      d = (int)ma->value;
+	      parsed_double = ma->value;
+	    }
 	  
-	  if (!(k == SUCCEEDED || k == INPUT_NUMBER_ADDRESS_LABEL || k == INPUT_NUMBER_STACK))
-	    return FAILED;
+	    if (!(k == SUCCEEDED || k == INPUT_NUMBER_ADDRESS_LABEL || k == INPUT_NUMBER_STACK))
+	      return FAILED;
 	  
-	  if (k == SUCCEEDED) {
-	    s->type = STACK_ITEM_TYPE_VALUE;
-	    s->value = parsed_double;
+	    if (k == SUCCEEDED) {
+	      s->type = STACK_ITEM_TYPE_VALUE;
+	      s->value = parsed_double;
+	    }
+	    else if (k == INPUT_NUMBER_STACK) {
+	      s->type = STACK_ITEM_TYPE_STACK;
+	      s->value = latest_stack;
+	    }
+	    else
+	      strcpy(s->string, label);
 	  }
-	  else if (k == INPUT_NUMBER_STACK) {
-	    s->type = STACK_ITEM_TYPE_STACK;
-	    s->value = latest_stack;
-	  }
-	  else
-	    strcpy(s->string, label);
 	}
       }
       else {
-	if (macro_active != 0) {
-	  /* expand e.g., \1 and \@ */
-	  if (expand_macro_arguments(s->string) == FAILED)
-	    return FAILED;
-	}
-
-        hashmap_get(defines_map, s->string, (void*)&tmp_def);
-        if (tmp_def != NULL) {
-          if (tmp_def->type == DEFINITION_TYPE_STRING) {
-            sprintf(xyz, "Definition \"%s\" is a string definition.\n", tmp_def->alias);
-            print_error(xyz, ERROR_STC);
-            return FAILED;
-          }
-          else if (tmp_def->type == DEFINITION_TYPE_STACK) {
-	    /* skip stack definitions -> use its name instead, thus do nothing here */
-          }
-	  else if (tmp_def->type == DEFINITION_TYPE_ADDRESS_LABEL) {
-	    /* wla cannot resolve address labels (unless outside a section) -> only wlalink can do that */
-	    cannot_resolve = 1;
-	    strcpy(s->string, tmp_def->string);
-	  }
-	  else {
-            s->type = STACK_ITEM_TYPE_VALUE;
-            s->value = tmp_def->value;
-          }
-        }
+	if (_resolve_string(s, &cannot_resolve) == FAILED)
+	  return FAILED;
       }
     }
     s++;
@@ -1081,9 +1019,9 @@ int resolve_stack(struct stack_item s[], int x) {
   if (cannot_resolve != 0)
     return FAILED;
 
-  /* find a string or a stack and fail */
+  /* find a string, a stack, bank, or a NOT and fail */
   while (q > 0) {
-    if (st->type == STACK_ITEM_TYPE_STRING || st->type == STACK_ITEM_TYPE_STACK)
+    if (st->type == STACK_ITEM_TYPE_STRING || st->type == STACK_ITEM_TYPE_STACK || (st->type == STACK_ITEM_TYPE_OPERATOR && st->value == SI_OP_NOT) || (st->type == STACK_ITEM_TYPE_OPERATOR && st->value == SI_OP_BANK))
       return FAILED;
     q--;
     st++;
@@ -1122,6 +1060,10 @@ int compute_stack(struct stack *sta, int x, double *result) {
 	t--;
 	break;
       case SI_OP_MULTIPLY:
+	if (t <= 1) {
+	  fprintf(stderr, "%s:%d: COMPUTE_STACK: Multiply is missing an operand.\n", get_file_name(sta->filename_id), sta->linenumber);
+	  return FAILED;
+	}
 	v[t - 2] *= v[t - 1];
 	t--;
 	break;
@@ -1133,26 +1075,41 @@ int compute_stack(struct stack *sta, int x, double *result) {
 	z = (int)v[t - 1];
 	v[t - 1] = (z>>8) & 0xFF;
 	break;
+      case SI_OP_NOT:
+	fprintf(stderr, "%s:%d: COMPUTE_STACK: NOT cannot determine the output size.\n", get_file_name(sta->filename_id), sta->linenumber);
+	return FAILED;
+	break;
       case SI_OP_XOR:
-	/* 16bit XOR? */
-	if (v[t - 2] > 0xFF || v[t - 2] < -128 || v[t - 1] > 0xFF || v[t - 1] < -128)
-	  v[t - 2] = ((int)v[t - 1] ^ (int)v[t - 2]) & 0xFFFF;
-	/* 8bit XOR */
-	else
-	  v[t - 2] = ((int)v[t - 1] ^ (int)v[t - 2]) & 0xFF;
+	if (t <= 1) {
+	  fprintf(stderr, "%s:%d: COMPUTE_STACK: XOR is missing an operand.\n", get_file_name(sta->filename_id), sta->linenumber);
+	  return FAILED;
+	}
+	v[t - 2] = (int)v[t - 1] ^ (int)v[t - 2];
 	t--;
 	break;
       case SI_OP_OR:
+	if (t <= 1) {
+	  fprintf(stderr, "%s:%d: COMPUTE_STACK: OR is missing an operand.\n", get_file_name(sta->filename_id), sta->linenumber);
+	  return FAILED;
+	}
 	v[t - 2] = (int)v[t - 1] | (int)v[t - 2];
 	t--;
 	break;
       case SI_OP_AND:
+	if (t <= 1) {
+	  fprintf(stderr, "%s:%d: COMPUTE_STACK: AND is missing an operand.\n", get_file_name(sta->filename_id), sta->linenumber);
+	  return FAILED;
+	}
 	v[t - 2] = (int)v[t - 1] & (int)v[t - 2];
 	t--;
 	break;
       case SI_OP_MODULO:
 	if (((int)v[t - 1]) == 0) {
 	  fprintf(stderr, "%s:%d: COMPUTE_STACK: Modulo by zero.\n", get_file_name(sta->filename_id), sta->linenumber);
+	  return FAILED;
+	}
+	if (t <= 1) {
+	  fprintf(stderr, "%s:%d: COMPUTE_STACK: Modulo is missing an operand.\n", get_file_name(sta->filename_id), sta->linenumber);
 	  return FAILED;
 	}
 	v[t - 2] = (int)v[t - 2] % (int)v[t - 1];
@@ -1163,18 +1120,34 @@ int compute_stack(struct stack *sta, int x, double *result) {
 	  fprintf(stderr, "%s:%d: COMPUTE_STACK: Division by zero.\n", get_file_name(sta->filename_id), sta->linenumber);
 	  return FAILED;
 	}
+	if (t <= 1) {
+	  fprintf(stderr, "%s:%d: COMPUTE_STACK: Division is missing an operand.\n", get_file_name(sta->filename_id), sta->linenumber);
+	  return FAILED;
+	}
 	v[t - 2] /= v[t - 1];
 	t--;
 	break;
       case SI_OP_POWER:
+	if (t <= 1) {
+	  fprintf(stderr, "%s:%d: COMPUTE_STACK: Power is missing an operand.\n", get_file_name(sta->filename_id), sta->linenumber);
+	  return FAILED;
+	}
 	v[t - 2] = pow(v[t - 2], v[t - 1]);
 	t--;
 	break;
       case SI_OP_SHIFT_LEFT:
+	if (t <= 1) {
+	  fprintf(stderr, "%s:%d: COMPUTE_STACK: Shift left is missing an operand.\n", get_file_name(sta->filename_id), sta->linenumber);
+	  return FAILED;
+	}
 	v[t - 2] = (int)v[t - 2] << (int)v[t - 1];
 	t--;
 	break;
       case SI_OP_SHIFT_RIGHT:
+	if (t <= 1) {
+	  fprintf(stderr, "%s:%d: COMPUTE_STACK: Shift right is missing an operand.\n", get_file_name(sta->filename_id), sta->linenumber);
+	  return FAILED;
+	}
 	v[t - 2] = (int)v[t - 2] >> (int)v[t - 1];
 	t--;
 	break;
@@ -1214,7 +1187,7 @@ int stack_create_label_stack(char *label) {
     return FAILED;
   }
   stacks_tmp->next = NULL;
-  stacks_tmp->type = STACKS_TYPE_UNKNOWN;
+  stacks_tmp->type = STACK_TYPE_UNKNOWN;
   stacks_tmp->bank = -123456;
   stacks_tmp->stacksize = 1;
   stacks_tmp->relative_references = 0;
@@ -1227,7 +1200,8 @@ int stack_create_label_stack(char *label) {
 
   stacks_tmp->linenumber = active_file_info_last->line_current;
   stacks_tmp->filename_id = active_file_info_last->filename_id;
-
+  stacks_tmp->special_id = 0;
+  
   /* all stacks will be definition stacks by default. pass_4 will mark
      those that are referenced to be STACK_POSITION_CODE stacks */
   stacks_tmp->position = STACK_POSITION_DEFINITION;
@@ -1236,7 +1210,53 @@ int stack_create_label_stack(char *label) {
   stacks_tmp->stack[0].sign = SI_SIGN_POSITIVE;
   strcpy(stacks_tmp->stack[0].string, label);
 
+#if WLA_DEBUG
+  _debug_print_stack(stacks_tmp->linenumber, stack_id, stacks_tmp->stack, 1, 1);
+#endif
+  
   _stack_insert();
 
+  return SUCCEEDED;
+}
+
+
+int stack_create_stack_stack(int stack_id) {
+
+  /* we need to create a stack that holds just one computation stack */
+  stacks_tmp = calloc(sizeof(struct stack), 1);
+  if (stacks_tmp == NULL) {
+    print_error("Out of memory error while allocating room for a new stack.\n", ERROR_STC);
+    return FAILED;
+  }
+  stacks_tmp->next = NULL;
+  stacks_tmp->type = STACK_TYPE_UNKNOWN;
+  stacks_tmp->bank = -123456;
+  stacks_tmp->stacksize = 1;
+  stacks_tmp->relative_references = 0;
+  stacks_tmp->stack = calloc(sizeof(struct stack_item), 1);
+  if (stacks_tmp->stack == NULL) {
+    free(stacks_tmp);
+    print_error("Out of memory error while allocating room for a new stack.\n", ERROR_STC);
+    return FAILED;
+  }
+
+  stacks_tmp->linenumber = active_file_info_last->line_current;
+  stacks_tmp->filename_id = active_file_info_last->filename_id;
+  stacks_tmp->special_id = 0;
+  
+  /* all stacks will be definition stacks by default. pass_4 will mark
+     those that are referenced to be STACK_POSITION_CODE stacks */
+  stacks_tmp->position = STACK_POSITION_DEFINITION;
+
+  stacks_tmp->stack[0].type = STACK_ITEM_TYPE_STACK;
+  stacks_tmp->stack[0].value = stack_id;
+  stacks_tmp->stack[0].sign = SI_SIGN_POSITIVE;
+
+#if WLA_DEBUG
+  _debug_print_stack(stacks_tmp->linenumber, stack_id, stacks_tmp->stack, 1, 2);
+#endif
+
+  _stack_insert();
+    
   return SUCCEEDED;
 }

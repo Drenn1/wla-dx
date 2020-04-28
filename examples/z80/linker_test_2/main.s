@@ -4,7 +4,7 @@
 ; written by ville helin <vhelin@cc.hut.fi> in 1998-2003
 ;»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»
 
-.INCLUDE "defines.i"
+.INC "defines.i"
 
 ;»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»
 ; dummy macros
@@ -52,7 +52,8 @@ wt\@:
 ;»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»»
 
 .DEFINE SKELETOR $10*2
-
+.define VALUE_A 2 EXPORT
+.define VALUE_B 3 EXPORT
 
 .BANK 0 SLOT 0
 .ORG 0
@@ -90,6 +91,12 @@ MORE_ACTION:
 	LD	A, 'c'
 	EXX			; ?
 	NOP			/* just testing */
+	JP	(HL)
+	JP	HL
+	JP	(IX)
+	JP	IX
+	JP	(IY)
+	JP	IY
 	DEC	A
 	JR	NC, MORE_ACTION
 	JP	MORE_ACTION

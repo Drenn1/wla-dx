@@ -10,12 +10,13 @@
 #include "pass_1.h"
 #include "stack.h"
 #include "include_file.h"
+#include "printf.h"
 
 
 int parse_string_length(char *end);
 
-int input_number_error_msg = YES, ss, string_size, input_float_mode = OFF, parse_floats = YES;
-int newline_beginning = ON, parsed_double_decimal_numbers = 0;
+int input_number_error_msg = YES, ss, string_size, input_float_mode = OFF, parse_floats = YES, expect_calculations = YES;
+int newline_beginning = ON, parsed_double_decimal_numbers = 0, operand_hint, operand_hint_type;
 char label[MAX_NAME_LENGTH + 1], xyz[512];
 char unevaluated_expression[256];
 char expanded_macro_string[MAX_NAME_LENGTH + 1];
@@ -29,9 +30,6 @@ extern struct map_t *defines_map;
 extern struct macro_runtime *macro_stack, *macro_runtime_current;
 extern int latest_stack;
 
-#if defined(MCS6502) || defined(W65816) || defined(MCS6510) || defined(WDC65C02) || defined(HUC6280) || defined(MC6800)
-int operand_hint;
-#endif
 
 
 int is_string_ending_with(char *s, char *e) {
@@ -72,30 +70,49 @@ int compare_next_token(char *token) {
 
   /* MACRO mode? */
   if (macro_active != 0 && e == '\\') {
-    for (d = 0, k = 0; k < 16; k++) {
-      e = buffer[++ii];
-      if (e >= '0' && e <= '9')
-	d = (d * 10) + e - '0';
-      else
-	break;
-    }
+    if (buffer[ii + 1] == '@') {
+      char tmp_buffer[64];
 
-    if (d > macro_runtime_current->supplied_arguments) {
-      if (input_number_error_msg == YES) {
-	sprintf(xyz, "COMPARE_NEXT_SYMBOL: Macro \"%s\" wasn't called with enough arguments.\n", macro_runtime_current->macro->name);
-	print_error(xyz, ERROR_NONE);
+      snprintf(tmp_buffer, sizeof(tmp_buffer), "%d", macro_runtime_current->macro->calls - 1);
+
+      e = tmp_buffer[0];
+      for (t = 0; t < length && e != 0; ) {
+	if (toupper((int)token[t]) != toupper((int)e))
+	  return FAILED;
+	t++;
+	e = tmp_buffer[t];
       }
+    }
+    else if (buffer[ii + 1] == '?') {
+      /* TODO: do we need to implement this? */
       return FAILED;
     }
+    else {
+      for (d = 0, k = 0; k < 16; k++) {
+	e = buffer[++ii];
+	if (e >= '0' && e <= '9')
+	  d = (d * 10) + e - '0';
+	else
+	  break;
+      }
 
-    ii = macro_runtime_current->argument_data[d - 1]->start;
-
-    e = buffer[ii];
-    for (t = 0; t < length && e != ' ' && e != ',' && e != 0x0A; ) {
-      if (toupper((int)token[t]) != toupper((int)e))
+      if (d > macro_runtime_current->supplied_arguments) {
+	if (input_number_error_msg == YES) {
+	  snprintf(xyz, sizeof(xyz), "COMPARE_NEXT_SYMBOL: Macro \"%s\" wasn't called with enough arguments.\n", macro_runtime_current->macro->name);
+	  print_error(xyz, ERROR_NONE);
+	}
 	return FAILED;
-      t++;
-      e = buffer[++ii];
+      }
+
+      ii = macro_runtime_current->argument_data[d - 1]->start;
+
+      e = buffer[ii];
+      for (t = 0; t < length && e != ' ' && e != ',' && e != 0x0A; ) {
+	if (toupper((int)token[t]) != toupper((int)e))
+	  return FAILED;
+	t++;
+	e = buffer[++ii];
+      }
     }
   }
   /* not in MACRO mode */
@@ -143,7 +160,7 @@ int input_next_string(void) {
 
   if (k == MAX_NAME_LENGTH) {
     if (input_number_error_msg == YES) {
-      sprintf(xyz, "The string is too long (max %d characters allowed).\n", MAX_NAME_LENGTH);
+      snprintf(xyz, sizeof(xyz), "The string is too long (max %d characters allowed).\n", MAX_NAME_LENGTH);
       print_error(xyz, ERROR_NUM);
     }
     return FAILED;
@@ -165,13 +182,12 @@ int input_number(void) {
 
   char label_tmp[MAX_NAME_LENGTH + 1];
   unsigned char e, ee;
-  int k, p, q;
+  int k, p, q, spaces = 0;
   double decimal_mul;
 
 
-#if defined(MCS6502) || defined(W65816) || defined(MCS6510) || defined(WDC65C02) || defined(HUC6280) || defined(MC6800)
   operand_hint = HINT_NONE;
-#endif
+  operand_hint_type = HINT_TYPE_NONE;
 
   /* skip white space */
   for (e = buffer[i++]; e == ' ' || e == ','; e = buffer[i++])
@@ -180,106 +196,133 @@ int input_number(void) {
   if (e == 0x0A)
     return INPUT_NUMBER_EOL;
 
-  /* check the type of the expression */
-  p = i;
-  ee = e;
-  while (ee != 0x0A) {
-    /* string / symbol -> no calculating */
-    if (ee == '"' || ee == ',' || (ee == '=' && buffer[p] == '=') || (ee == '!' && buffer[p] == '='))
-      break;
-    if (ee == '-' || ee == '+' || ee == '*' || ee == '/' || ee == '&' || ee == '|' || ee == '^' ||
-	ee == '<' || ee == '>' || ee == '#' || ee == '~') {
-      /* launch stack calculator */
-      p = stack_calculate(&buffer[i - 1], &d);
-
-      if (p == STACK_CALCULATE_DELAY)
+  if (expect_calculations == YES) {
+    /* check the type of the expression */
+    p = i;
+    ee = e;
+    while (ee != 0x0A) {
+      /* string / symbol -> no calculating */
+      if (ee == '"' || ee == ',' || (ee == '=' && buffer[p] == '=') || (ee == '!' && buffer[p] == '='))
 	break;
-      else if (p == STACK_RETURN_LABEL)
-	return INPUT_NUMBER_ADDRESS_LABEL;
-      else
-	return p;
+      /* HACK: special case, skip "_\@-1" and alike as we'll parse them later as strings */
+      if (((ee >= 'a' && ee <= 'z') || (ee >= 'A' && ee <= 'Z') || (ee >= '0' && ee <= '9') || (ee == '_' || ee == '.')) &&
+	  buffer[p] == '\\' && buffer[p+1] == '@' && (buffer[p+2] == '-' || buffer[p+2] == '+') && (buffer[p+3] >= '0' && buffer[p+3] <= '9')) {
+	p += 4;
+      }
+      else if (ee == ' ')
+	spaces++;
+      else if (ee == '-' || ee == '+' || ee == '*' || ee == '/' || ee == '&' || ee == '|' || ee == '^' ||
+	       ee == '<' || ee == '>' || ee == '#' || ee == '~' || ee == ':') {
+	if (ee == ':' && spaces > 0)
+	  break;
+	
+	/* launch stack calculator */
+	p = stack_calculate(&buffer[i - 1], &d);
+
+	if (p == STACK_CALCULATE_DELAY)
+	  break;
+	else if (p == STACK_RETURN_LABEL)
+	  return INPUT_NUMBER_ADDRESS_LABEL;
+	else
+	  return p;
+      }
+      ee = buffer[p];
+      p++;
     }
-    ee = buffer[p];
-    p++;
   }
 
   /* MACRO */
   if (macro_active != 0 && e == '\\') {
-
     struct macro_argument *ma;
-
+    int exit_here = YES;
+    int start_i = i;
+    unsigned char start_e = e;
 
     if (buffer[i] == '@') {
       i++;
       d = macro_runtime_current->macro->calls - 1;
-      return SUCCEEDED;
-    }
 
-    for (d = 0, k = 0; k < 4; k++) {
-      e = buffer[i++];
-      if (e >= '0' && e <= '9')
-        d = (d * 10) + (e - '0');
-      else {
-        i--;
-        break;
+      if (buffer[i] != ' ' && buffer[i] != 0xA && buffer[i] != ',')
+	exit_here = NO;
+      else
+	return SUCCEEDED;
+    }
+    else if (buffer[i] >= '0' && buffer[i] <= '9') {
+      for (d = 0, k = 0; k < 4; k++) {
+	e = buffer[i++];
+	if (e >= '0' && e <= '9')
+	  d = (d * 10) + (e - '0');
+	else {
+	  i--;
+	  break;
+	}
       }
-    }
 
-    if (d > macro_runtime_current->supplied_arguments) {
-      sprintf(xyz, "Referencing argument number %d inside macro \"%s\". The macro has only %d arguments.\n", d, macro_runtime_current->macro->name, macro_runtime_current->supplied_arguments);
-      print_error(xyz, ERROR_NUM);
-      return FAILED;
+      if (buffer[i] != ' ' && buffer[i] != 0xA && buffer[i] != ',' && buffer[i] != '.')
+	exit_here = NO;
     }
-    if (d == 0) {
-      sprintf(xyz, "Referencing argument number %d inside macro \"%s\". Macro arguments are counted from 1.\n", d, macro_runtime_current->macro->name);
-      print_error(xyz, ERROR_NUM);
-      return FAILED;
-    }
+    else
+      exit_here = NO;
 
-    /* return the macro argument */
-    ma = macro_runtime_current->argument_data[d - 1];
-    k = ma->type;
+    if (exit_here == YES) {
+      if (d > macro_runtime_current->supplied_arguments) {
+	snprintf(xyz, sizeof(xyz), "Referencing argument number %d inside macro \"%s\". The macro has only %d arguments.\n", d, macro_runtime_current->macro->name, macro_runtime_current->supplied_arguments);
+	print_error(xyz, ERROR_NUM);
+	return FAILED;
+      }
+      if (d == 0) {
+	snprintf(xyz, sizeof(xyz), "Referencing argument number %d inside macro \"%s\". Macro arguments are counted from 1.\n", d, macro_runtime_current->macro->name);
+	print_error(xyz, ERROR_NUM);
+	return FAILED;
+      }
 
-    if (k == INPUT_NUMBER_ADDRESS_LABEL)
-      strcpy(label, ma->string);
-    else if (k == INPUT_NUMBER_STRING) {
-      strcpy(label, ma->string);
-      string_size = (int)strlen(ma->string);
-    }
-    else if (k == INPUT_NUMBER_STACK)
-      latest_stack = ma->value;
-    else if (k == SUCCEEDED) {
-      d = ma->value;
-      parsed_double = ma->value;
+      /* return the macro argument */
+      ma = macro_runtime_current->argument_data[d - 1];
+      k = ma->type;
+
+      if (k == INPUT_NUMBER_ADDRESS_LABEL)
+	strcpy(label, ma->string);
+      else if (k == INPUT_NUMBER_STRING) {
+	strcpy(label, ma->string);
+	string_size = (int)strlen(ma->string);
+      }
+      else if (k == INPUT_NUMBER_STACK)
+	latest_stack = (int)ma->value;
+      else if (k == SUCCEEDED) {
+	d = (int)ma->value;
+	parsed_double = ma->value;
+      }
+      else {
+	print_error("Macro argument list has been corrupted! Please send a bug report!\n", ERROR_ERR);
+	return FAILED;
+      }
+
+      /* does the MACRO argument number end with a .b/.w/.l? */
+      if (e == '.') {
+	e = buffer[i+1];
+	if (e == 'b' || e == 'B') {
+	  operand_hint = HINT_8BIT;
+	  operand_hint_type = HINT_TYPE_GIVEN;
+	  i += 2;
+	}
+	else if (e == 'w' || e == 'W') {
+	  operand_hint = HINT_16BIT;
+	  operand_hint_type = HINT_TYPE_GIVEN;
+	  i += 2;
+	}
+	else if (e == 'l' || e == 'L') {
+	  operand_hint = HINT_24BIT;
+	  operand_hint_type = HINT_TYPE_GIVEN;
+	  i += 2;
+	}
+      }
+
+      return k;
     }
     else {
-      print_error("Macro argument list has been corrupted! Please send a bug report!\n", ERROR_ERR);
-      return FAILED;
+      i = start_i;
+      e = start_e;
     }
-
-    /* does the MACRO argument number end with a .b/.w/.l? */
-
-#if defined(MCS6502) || defined(W65816) || defined(MCS6510) || defined(WDC65C02) || defined(HUC6280) || defined(MC6800)
-    if (e == '.') {
-      e = buffer[i+1];
-      if (e == 'b' || e == 'B') {
-	operand_hint = HINT_8BIT;
-	i += 2;
-      }
-      else if (e == 'w' || e == 'W') {
-	operand_hint = HINT_16BIT;
-	i += 2;
-      }
-#if defined(W65816)
-      else if (e == 'l' || e == 'L') {
-	operand_hint = HINT_24BIT;
-	i += 2;
-      }
-#endif
-    }
-#endif
-
-    return k;
   }
 
   /* is it a hexadecimal value? */
@@ -320,40 +363,44 @@ int input_number(void) {
 	break;
     }
 
-#if defined(MCS6502) || defined(W65816) || defined(MCS6510) || defined(WDC65C02) || defined(HUC6280) || defined(MC6800)
     if (e == '.') {
       e = buffer[i+1];
       if (e == 'b' || e == 'B') {
 	operand_hint = HINT_8BIT;
+	operand_hint_type = HINT_TYPE_GIVEN;
 	i += 2;
       }
       else if (e == 'w' || e == 'W') {
 	operand_hint = HINT_16BIT;
+	operand_hint_type = HINT_TYPE_GIVEN;
 	i += 2;
       }
-#if defined(W65816)
       else if (e == 'l' || e == 'L') {
 	operand_hint = HINT_24BIT;
+	operand_hint_type = HINT_TYPE_GIVEN;
 	i += 2;
+      }
+    }
+
+    if (operand_hint == HINT_NONE) {
+      if (d > 0xFFFF && d <= 0xFFFFFF)
+	operand_hint = HINT_24BIT;
+      else if (d > 0xFF)
+	operand_hint = HINT_16BIT;
+      else
+	operand_hint = HINT_8BIT;
+
+      operand_hint_type = HINT_TYPE_DEDUCED;
+
+#if defined(MC6809)
+      /* 5-bit values need this */
+      if (d >= -16 && d <= 15) {
+	operand_hint = HINT_NONE;
+	operand_hint_type = HINT_TYPE_NONE;
       }
 #endif
     }
-#if defined(W65186)
-    if (d > 0xFFFF && d <= 0xFFFFFF)
-      operand_hint = HINT_24BIT;
-    else if (d > 0xFF)
-      operand_hint = HINT_16BIT;
-    else
-      operand_hint = HINT_8BIT;
-		
-#elif defined(MCS6502) || defined(MCS6510) || defined(WDC65C02) || defined(HUC6280) || defined(MC6800)
-    if (d > 0xFF && d <= 0xFFFF)
-      operand_hint = HINT_16BIT;
-    else
-      operand_hint = HINT_8BIT;
-#endif
-#endif
-
+    
     parsed_double = (double)d;
     
     return SUCCEEDED;
@@ -374,7 +421,7 @@ int input_number(void) {
 	  if (q == 0)
 	    print_error("Too many digits in the integer value. Max 10 is supported.\n", ERROR_NUM);
 	  else {
-	    sprintf(xyz, "Too many digits in the floating point value. Max %d is supported.\n", MAX_FLOAT_DIGITS);
+	    snprintf(xyz, sizeof(xyz), "Too many digits in the floating point value. Max %d is supported.\n", MAX_FLOAT_DIGITS);
 	    print_error(xyz, ERROR_NUM);
 	  }
 	  return FAILED;
@@ -403,30 +450,24 @@ int input_number(void) {
 	  q = 1;
 	  max_digits = MAX_FLOAT_DIGITS+1;
 	}
-#if defined(MCS6502) || defined(W65816) || defined(MCS6510) || defined(WDC65C02) || defined(HUC6280) || defined(MC6800)
 	else if (e == 'b' || e == 'B') {
 	  operand_hint = HINT_8BIT;
+	  operand_hint_type = HINT_TYPE_GIVEN;
 	  i += 2;
 	  break;
 	}
 	else if (e == 'w' || e == 'W') {
 	  operand_hint = HINT_16BIT;
+	  operand_hint_type = HINT_TYPE_GIVEN;
 	  i += 2;
 	  break;
 	}
-#if defined(W65816)
 	else if (e == 'l' || e == 'L') {
 	  operand_hint = HINT_24BIT;
+	  operand_hint_type = HINT_TYPE_GIVEN;
 	  i += 2;
 	  break;
 	}
-#endif
-#else
-	else {
-	  print_error("Syntax error.\n", ERROR_NUM);
-	  return FAILED;
-	}
-#endif
       }
       else if ((e >= 'a' && e <= 'z') || (e >= 'A' && e <= 'Z')) {
 	/* a number directly followed by a letter when parsing a integer/float -> syntax error */
@@ -439,21 +480,26 @@ int input_number(void) {
 
     /* drop the decimals */
     d = (int)parsed_double;
-#if defined(W65186)
-    if (d > 0xFFFF && d <= 0xFFFFFF)
-      operand_hint = HINT_24BIT;
-    else if (d > 0xFF)
-      operand_hint = HINT_16BIT;
-    else
-      operand_hint = HINT_8BIT;
-		
-#elif defined(MCS6502) || defined(MCS6510) || defined(WDC65C02) || defined(HUC6280) || defined(MC6800)
-    if (d > 0xFF && d <= 0xFFFF)
-      operand_hint = HINT_16BIT;
-    else
-      operand_hint = HINT_8BIT;
-#endif
 
+    if (operand_hint == HINT_NONE) {
+      if (d > 0xFFFF && d <= 0xFFFFFF)
+	operand_hint = HINT_24BIT;
+      else if (d > 0xFF)
+	operand_hint = HINT_16BIT;
+      else
+	operand_hint = HINT_8BIT;
+
+      operand_hint_type = HINT_TYPE_DEDUCED;
+
+#if defined(MC6809)
+      /* 5-bit values need this */
+      if (d >= -16 && d <= 15) {
+	operand_hint = HINT_NONE;
+	operand_hint_type = HINT_TYPE_NONE;
+      }
+#endif
+    }
+    
     if (q == 1 && input_float_mode == ON)
       return INPUT_NUMBER_FLOAT;
 
@@ -469,25 +515,24 @@ int input_number(void) {
 	break;
     }
 
-#if defined(MCS6502) || defined(W65816) || defined(MCS6510) || defined(WDC65C02) || defined(HUC6280) || defined(MC6800)
     if (e == '.') {
       e = buffer[i+1];
       if (e == 'b' || e == 'B') {
 	operand_hint = HINT_8BIT;
+	operand_hint_type = HINT_TYPE_GIVEN;
 	i += 2;
       }
       else if (e == 'w' || e == 'W') {
 	operand_hint = HINT_16BIT;
+	operand_hint_type = HINT_TYPE_GIVEN;
 	i += 2;
       }
-#if defined(W65816)
       else if (e == 'l' || e == 'L') {
 	operand_hint = HINT_24BIT;
+	operand_hint_type = HINT_TYPE_GIVEN;
 	i += 2;
       }
-#endif
     }
-#endif
 
     parsed_double = (double)d;
 
@@ -499,7 +544,7 @@ int input_number(void) {
     e = buffer[i];
     if (e != '\'') {
       if (input_number_error_msg == YES) {
-	sprintf(xyz, "Got '%c' (%d) when expected \"'\".\n", e, e);
+	snprintf(xyz, sizeof(xyz), "Got '%c' (%d) when expected \"'\".\n", e, e);
 	print_error(xyz, ERROR_NUM);
       }
       return FAILED;
@@ -560,7 +605,7 @@ int input_number(void) {
 
     if (k == MAX_NAME_LENGTH) {
       if (input_number_error_msg == YES) {
-	sprintf(xyz, "The string is too long (max %d characters allowed).\n", MAX_NAME_LENGTH);
+	snprintf(xyz, sizeof(xyz), "The string is too long (max %d characters allowed).\n", MAX_NAME_LENGTH);
 	print_error(xyz, ERROR_NUM);
       }
       return FAILED;
@@ -587,32 +632,30 @@ int input_number(void) {
 
   if (k == MAX_NAME_LENGTH) {
     if (input_number_error_msg == YES) {
-      sprintf(xyz, "The label is too long (max %d characters allowed).\n", MAX_NAME_LENGTH);
+      snprintf(xyz, sizeof(xyz), "The label is too long (max %d characters allowed).\n", MAX_NAME_LENGTH);
       print_error(xyz, ERROR_NUM);
     }
     return FAILED;
   }
 
-#if defined(MCS6502) || defined(W65816) || defined(MCS6510) || defined(WDC65C02) || defined(HUC6280) || defined(MC6800)
   /* size hint? */
   if (label[k-2] == '.') {
     if (label[k-1] == 'b' || label[k-1] == 'B') {
       operand_hint = HINT_8BIT;
+      operand_hint_type = HINT_TYPE_GIVEN;
       k -= 2;
     }
     else if (label[k-1] == 'w' || label[k-1] == 'W') {
       operand_hint = HINT_16BIT;
+      operand_hint_type = HINT_TYPE_GIVEN;
       k -= 2;
     }
-#if defined(W65816)
     else if (label[k-1] == 'l' || label[k-1] == 'L') {
       operand_hint = HINT_24BIT;
+      operand_hint_type = HINT_TYPE_GIVEN;
       k -= 2;
     }
-#endif
-
   }
-#endif
 
   label[k] = 0;
 
@@ -644,26 +687,35 @@ int input_number(void) {
   if (tmp_def != NULL) {
     if (tmp_def->type == DEFINITION_TYPE_VALUE) {
       d = (int)tmp_def->value;
-#if defined(W65186)
-      if (d > 0xFFFF && d <= 0xFFFFFF)
-        operand_hint = HINT_24BIT;
-      else if (d > 0xFF)
-        operand_hint = HINT_16BIT;
-      else
-        operand_hint = HINT_8BIT;
 
-#elif defined(MCS6502) || defined(MCS6510) || defined(WDC65C02) || defined(HUC6280) || defined(MC6800)
-      if (d > 0xFF && d <= 0xFFFF)
-        operand_hint = HINT_16BIT;
-      else
-        operand_hint = HINT_8BIT;
+      if (operand_hint == HINT_NONE) {
+	if (d > 0xFFFF && d <= 0xFFFFFF)
+	  operand_hint = HINT_24BIT;
+	else if (d > 0xFF)
+	  operand_hint = HINT_16BIT;
+	else
+	  operand_hint = HINT_8BIT;
+
+	operand_hint_type = HINT_TYPE_DEDUCED;
+
+#if defined(MC6809)
+	/* 5-bit values need this */
+	if (d >= -16 && d <= 15) {
+	  operand_hint = HINT_NONE;
+	  operand_hint_type = HINT_TYPE_NONE;
+	}
 #endif
-      parsed_double = (double)d;
+      }
       
+      parsed_double = (double)d;
+
       return SUCCEEDED;
     }
     else if (tmp_def->type == DEFINITION_TYPE_STACK) {
-      latest_stack = (int)tmp_def->value;
+      /* wrap the referenced, existing stack calculation inside a new stack calculation as stack
+	 calculation contains a write. the 2nd, 3rd etc. reference don't do anything by themselves.
+	 but wrapping creates a new stack calculation that also makes a write */
+      stack_create_stack_stack((int)tmp_def->value);
       return INPUT_NUMBER_STACK;
     }
     else if (tmp_def->type == DEFINITION_TYPE_ADDRESS_LABEL) {
@@ -671,12 +723,12 @@ int input_number(void) {
         /* we need to keep the ':' prefix */
 	if (strlen(tmp_def->string) >= MAX_NAME_LENGTH-1) {
 	  if (input_number_error_msg == YES) {
-	    sprintf(xyz, "The label is too long (max %d characters allowed).\n", MAX_NAME_LENGTH);
+	    snprintf(xyz, sizeof(xyz), "The label is too long (max %d characters allowed).\n", MAX_NAME_LENGTH);
 	    print_error(xyz, ERROR_NUM);
 	  }
 	  return FAILED;	  
 	}
-        sprintf(label, ":%.254s", tmp_def->string);
+        snprintf(label, sizeof(label), ":%.254s", tmp_def->string);
         string_size = tmp_def->size + 1;
       }
       else {
@@ -802,6 +854,10 @@ int get_next_token(void) {
 
   skip_whitespace();
 
+  /* skip leading commas */
+  while (buffer[i] == ',')
+    i++;
+  
   /* "string"? */
   if (buffer[i] == '"') {
     for (ss = 0, i++; buffer[i] != 0xA && buffer[i] != '"'; ) {
@@ -833,7 +889,7 @@ int get_next_token(void) {
   if (buffer[i] == '.') {
     tmp[0] = '.';
     i++;
-    for (ss = 1; buffer[i] != 0x0A && buffer[i] != ' ' && ss < MAX_NAME_LENGTH; ) {
+    for (ss = 1; buffer[i] != 0x0A && buffer[i] != ' ' && buffer[i] != '-' && ss < MAX_NAME_LENGTH; ) {
       tmp[ss] = buffer[i];
       cp[ss - 1] = toupper((int)buffer[i]);
       i++;
@@ -851,8 +907,6 @@ int get_next_token(void) {
       ss++;
       i++;
     }
-    if (buffer[i] == ',')
-      i++;
   }
 
   if (ss >= MAX_NAME_LENGTH) {
@@ -908,7 +962,7 @@ int skip_next_token(void) {
 int _expand_macro_arguments_one_pass(char *in, int *expands, int *move_up) {
 
   char t[MAX_NAME_LENGTH + 1];
-  int i, j, k;
+  int i, j, k, adder;
 
 
   memset(expanded_macro_string, 0, MAX_NAME_LENGTH + 1);
@@ -925,7 +979,76 @@ int _expand_macro_arguments_one_pass(char *in, int *expands, int *move_up) {
 	(*expands)++;
 	i++;
 
-	sprintf(t, "%d%c", macro_runtime_current->macro->calls - 1, 0);
+	adder = 0;
+	if (in[i + 1] == '-' && in[i + 2] >= '0' && in[i + 2] <= '9') {
+	  /* found "\@-1" and alike */
+	  adder = -(in[i + 2] - '0');
+	  i += 2;
+	}
+	else if (in[i + 1] == '+' && in[i + 2] >= '0' && in[i + 2] <= '9') {
+	  /* found "\@+1" and alike */
+	  adder = in[i + 2] - '0';
+	  i += 2;
+	}
+	
+	snprintf(t, sizeof(t), "%d", macro_runtime_current->macro->calls - 1 + adder);
+	for (j = 0; j < MAX_NAME_LENGTH && k < MAX_NAME_LENGTH; j++, k++) {
+	  expanded_macro_string[k] = t[j];
+	  if (t[j] == 0)
+	    break;
+	}
+      }
+      else if (in[i + 1] == '?') {
+	/* we found '?' -> expand! */
+	int d = 0, type;
+	
+	(*expands)++;
+	i++;
+
+	i++;
+	for (; i < MAX_NAME_LENGTH && in[i] != 0; i++) {
+	  if (in[i] >= '0' && in[i] <= '9')
+	    d = (d * 10) + in[i] - '0';
+	  else
+	    break;
+	}
+	i--;
+
+	if (d <= 0 || d > macro_runtime_current->supplied_arguments) {
+	  if (input_number_error_msg == YES) {
+	    snprintf(xyz, sizeof(xyz), "Macro \"%s\" wasn't called with enough arguments, \\?%d is out of range.\n", macro_runtime_current->macro->name, d);
+	    print_error(xyz, ERROR_NUM);
+	  }
+    
+	  return FAILED;
+	}
+
+	type = macro_runtime_current->argument_data[d-1]->type;
+	if (type == SUCCEEDED)
+	  strcpy(t, "ARG_NUMBER");
+	else if (type == INPUT_NUMBER_FLOAT)
+	  strcpy(t, "ARG_NUMBER");
+	else if (type == INPUT_NUMBER_ADDRESS_LABEL)
+	  strcpy(t, "ARG_LABEL");
+	else if (type == INPUT_NUMBER_STRING)
+	  strcpy(t, "ARG_STRING");
+	else if (type == INPUT_NUMBER_STACK)
+	  strcpy(t, "ARG_PENDING_CALCULATION");
+	else
+	  strcpy(t, "???");
+	
+	for (j = 0; j < MAX_NAME_LENGTH && k < MAX_NAME_LENGTH; j++, k++) {
+	  expanded_macro_string[k] = t[j];
+	  if (t[j] == 0)
+	    break;
+	}
+      }
+      else if (in[i + 1] == '.') {
+	/* we found '.' -> expand! */
+	(*expands)++;
+	i++;
+
+	snprintf(t, sizeof(t), "%s", macro_runtime_current->macro->name);
 	for (j = 0; j < MAX_NAME_LENGTH && k < MAX_NAME_LENGTH; j++, k++) {
 	  expanded_macro_string[k] = t[j];
 	  if (t[j] == 0)
@@ -937,7 +1060,7 @@ int _expand_macro_arguments_one_pass(char *in, int *expands, int *move_up) {
 	(*expands)++;
 	i++;
 
-	sprintf(t, "%s%c", get_file_name(active_file_info_last->filename_id), 0);
+	snprintf(t, sizeof(t), "%s", get_file_name(active_file_info_last->filename_id));
 	for (j = 0; j < MAX_NAME_LENGTH && k < MAX_NAME_LENGTH; j++, k++) {
 	  expanded_macro_string[k] = t[j];
 	  if (t[j] == 0)
@@ -961,7 +1084,7 @@ int _expand_macro_arguments_one_pass(char *in, int *expands, int *move_up) {
 
 	if (d > macro_runtime_current->supplied_arguments) {
 	  if (input_number_error_msg == YES) {
-	    sprintf(xyz, "Macro \"%s\" wasn't called with enough arguments, \\%d is out of range.\n", macro_runtime_current->macro->name, d);
+	    snprintf(xyz, sizeof(xyz), "Macro \"%s\" wasn't called with enough arguments, \\%d is out of range.\n", macro_runtime_current->macro->name, d);
 	    print_error(xyz, ERROR_NUM);
 	  }
     
@@ -978,7 +1101,7 @@ int _expand_macro_arguments_one_pass(char *in, int *expands, int *move_up) {
       }
       else {
 	if (input_number_error_msg == YES) {
-	  sprintf(xyz, "EXPAND_MACRO_ARGUMENTS: Unsupported special character '%c'.\n", in[i + 1]);
+	  snprintf(xyz, sizeof(xyz), "EXPAND_MACRO_ARGUMENTS: Unsupported special character '%c'.\n", in[i + 1]);
 	  print_error(xyz, ERROR_NUM);
 	}
     
@@ -994,7 +1117,7 @@ int _expand_macro_arguments_one_pass(char *in, int *expands, int *move_up) {
 
   if (k >= MAX_NAME_LENGTH) {
     if (input_number_error_msg == YES) {
-      sprintf(xyz, "EXPAND_MACRO_ARGUMENTS: The result string is too large, increase MAX_NAME_LENGTH and compile WLA DX again.\n");
+      snprintf(xyz, sizeof(xyz), "EXPAND_MACRO_ARGUMENTS: The result string is too large, increase MAX_NAME_LENGTH and compile WLA DX again.\n");
       print_error(xyz, ERROR_NUM);
     }
     

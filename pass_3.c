@@ -8,11 +8,13 @@
 
 #include "include_file.h"
 #include "pass_3.h"
+#include "printf.h"
 
 
 extern struct incbin_file_data *incbin_file_data_first, *ifd_tmp;
 extern struct section_def *sections_first, *sections_last, *sec_tmp, *sec_next;
 extern struct file_name_info *file_name_info_first, *file_name_info_last, *file_name_info_tmp;
+extern struct block_name *block_names;
 extern unsigned char *rom_banks, *rom_banks_usage_table;
 extern FILE *file_out_ptr;
 extern char *tmp_name, tmp[4096], emsg[1024];
@@ -23,17 +25,19 @@ struct label_def *label_next, *label_last, *label_tmp, *labels = NULL;
 struct map_t *global_unique_label_map = NULL;
 struct block *blocks = NULL;
 
-int dstruct_start, dstruct_item_offset, dstruct_item_size;
+static int dstruct_start, dstruct_item_offset, dstruct_item_size;
 
 #define XSTRINGIFY(x) #x
 #define STRINGIFY(x) XSTRINGIFY(x)
 #define STRING_READ_FORMAT ("%" STRINGIFY(MAX_NAME_LENGTH) "s ")
 
 
+
 int pass_3(void) {
 
   struct section_def *s;
   struct label_def *l;
+  struct block_name *bn;
   struct label_def *parent_labels[10];
   struct block *b;
   FILE *f_in;
@@ -119,6 +123,10 @@ int pass_3(void) {
 	fprintf(stderr, "INTERNAL_PASS_1: .ORG needs to be set before any code/data can be accepted.\n");
 	return FAILED;
 
+      case 'v':
+	fscanf(f_in, "%*d ");
+	continue;
+	
       case 'b':
 	fscanf(f_in, "%d ", &base);
 	continue;
@@ -136,18 +144,27 @@ int pass_3(void) {
 	continue;
 
       case 'g':
+	fscanf(f_in, "%d ", &x);
+
+	bn = block_names;
+	while (bn != NULL) {
+	  if (bn->id == x)
+	    break;
+	  bn = bn->next;
+	}
+	
 	b = calloc(sizeof(struct block), 1);
 	if (b == NULL) {
-	  fscanf(f_in, STRING_READ_FORMAT, tmp);
 	  fprintf(stderr, "%s:%d INTERNAL_PASS_1: Out of memory while trying to allocate room for block \"%s\".\n",
-		  get_file_name(file_name_id), line_number, tmp);
+		  get_file_name(file_name_id), line_number, bn->name);
 	  return FAILED;
 	}
+
 	b->filename_id = file_name_id;
 	b->line_number = line_number;
 	b->next = blocks;
 	blocks = b;
-	fscanf(f_in, STRING_READ_FORMAT, b->name);
+	strcpy(b->name, bn->name);
 	b->address = add;
 	continue;
 
@@ -231,8 +248,8 @@ int pass_3(void) {
 
         /* check the label is not already defined */
 
-        sprintf(emsg, "%s:%d: INTERNAL_PASS_1: Label \"%s\" was defined for the second time.\n",
-            get_file_name(file_name_id), line_number, l->label);
+        snprintf(emsg, sizeof(emsg), "%s:%d: INTERNAL_PASS_1: Label \"%s\" was defined for the second time.\n",
+		 get_file_name(file_name_id), line_number, l->label);
 
         if (s != NULL) {
           /* always put the label into the section's label_map */
@@ -294,12 +311,23 @@ int pass_3(void) {
 	  s = s->next;
 
 	/* a .RAMSECTION? */
-	if (s->status == SECTION_STATUS_RAM) {
+	if (s->status == SECTION_STATUS_RAM_FREE) {
 	  s->address = 0;
 	  s->listfile_items = 1;
 	  s->listfile_ints = NULL;
 	  s->listfile_cmds = NULL;
 	  add = 0;
+	  section_status = ON;
+	  continue;
+	}
+	else if (s->status == SECTION_STATUS_RAM_FORCE) {
+	  if (s->address < 0)
+	    s->address = add;
+	  else
+	    add = s->address;
+	  s->listfile_items = 1;
+	  s->listfile_ints = NULL;
+	  s->listfile_cmds = NULL;
 	  section_status = ON;
 	  continue;
 	}
@@ -327,6 +355,8 @@ int pass_3(void) {
 
 	if (s->advance_org == NO)
 	  add = add_old;
+	else
+	  add = add_old + s->size;
 
 	section_status = OFF;
 	s = NULL;
@@ -383,7 +413,15 @@ int pass_3(void) {
 	if (s->status == SECTION_STATUS_FREE)
 	  add = 0;
 
-	s->address = add;
+	if (s->status == SECTION_STATUS_RAM_FORCE) {
+	  if (s->address < 0)
+	    s->address = add;
+	  else
+	    add = s->address;
+	}
+	else
+	  s->address = add;
+
 	s->bank = bank;
 	s->base = base;
 	s->slot = slot;
@@ -452,15 +490,24 @@ int pass_3(void) {
       while (s->id != inz)
 	s = s->next;
 
-      if (s->status == SECTION_STATUS_FREE || s->status == SECTION_STATUS_RAM)
+      if (s->status == SECTION_STATUS_FREE || s->status == SECTION_STATUS_RAM_FREE)
 	add = 0;
 
-      if (s->status != SECTION_STATUS_RAM) {
+      if (s->status != SECTION_STATUS_RAM_FREE && s->status != SECTION_STATUS_RAM_FORCE) {
         s->bank = bank;
         s->base = base;
         s->slot = slot;
       }
-      s->address = add;
+
+      if (s->status == SECTION_STATUS_RAM_FORCE) {
+	if (s->address < 0)
+	  s->address = add;
+	else
+	  add = s->address;
+      }
+      else
+	s->address = add;
+      
       s->listfile_items = 1;
       s->listfile_ints = NULL;
       s->listfile_cmds = NULL;
@@ -488,7 +535,9 @@ int pass_3(void) {
       /* some sections don't affect the ORG outside of them */
       if (s->advance_org == NO)
 	add = add_old;
-
+      else
+	add = add_old + s->size;
+      
       section_status = OFF;
       s = NULL;
       continue;
@@ -524,6 +573,10 @@ int pass_3(void) {
       add += 3;
       continue;
 
+    case 'v':
+      fscanf(f_in, "%*d ");
+      continue;
+	
     case 'b':
       fscanf(f_in, "%d ", &base);
       continue;
@@ -536,9 +589,7 @@ int pass_3(void) {
       add++;
       continue;
 
-#ifdef W65816
     case 'M':
-#endif
     case 'r':
       fscanf(f_in, "%*s ");
       add += 2;
@@ -576,18 +627,26 @@ int pass_3(void) {
       continue;
 
     case 'g':
+      fscanf(f_in, "%d ", &x);
+
+      bn = block_names;
+      while (bn != NULL) {
+	if (bn->id == x)
+	  break;
+	bn = bn->next;
+      }
+
       b = calloc(sizeof(struct block), 1);
       if (b == NULL) {
-	fscanf(f_in, STRING_READ_FORMAT, tmp);
 	fprintf(stderr, "%s:%d INTERNAL_PASS_1: Out of memory while trying to allocate room for block \"%s\".\n",
-		get_file_name(file_name_id), line_number, tmp);
+		get_file_name(file_name_id), line_number, bn->name);
 	return FAILED;
       }
       b->filename_id = file_name_id;
       b->line_number = line_number;
       b->next = blocks;
       blocks = b;
-      fscanf(f_in, STRING_READ_FORMAT, b->name);
+      strcpy(b->name, bn->name);
       b->address = add;
       continue;
 
@@ -625,9 +684,8 @@ int pass_3(void) {
         /* if the label has '@' at the start, mangle the label name to make it unique */
         int n = 0, m;
 
-        while (n < 10 && l->label[n] == '@') {
+        while (n < 10 && l->label[n] == '@')
           n++;
-        }
         m = n;
         while (m < 10)
           parent_labels[m++] = NULL;
@@ -679,8 +737,10 @@ int pass_3(void) {
 	continue;
       }
 
-      sprintf(emsg, "%s:%d: INTERNAL_PASS_1: Label \"%s\" was defined for the second time.\n",
-	      get_file_name(file_name_id), line_number, l->label);
+      /* check the label is not already defined */
+
+      snprintf(emsg, sizeof(emsg), "%s:%d: INTERNAL_PASS_1: Label \"%s\" was defined for the second time.\n",
+	       get_file_name(file_name_id), line_number, l->label);
 
       if (s != NULL) {
         /* always put the label into the section's label_map */
