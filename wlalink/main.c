@@ -32,10 +32,10 @@
 #define WLALINK_DEBUG
 */
 
-char version_string[] = "$VER: wlalink 5.13a (8.3.2020)";
+char version_string[] = "$VER: wlalink 5.14a (10.12.2020)";
 
 #ifdef AMIGA
-long __stack = 200000;
+__near long __stack = 200000;
 #endif
 
 struct object_file *obj_first = NULL, *obj_last = NULL, *obj_tmp;
@@ -52,6 +52,8 @@ struct label_sizeof *label_sizeofs = NULL;
 unsigned char *rom, *rom_usage, *file_header = NULL, *file_footer = NULL;
 char load_address_label[MAX_NAME_LENGTH + 1];
 int load_address = 0, load_address_type = LOAD_ADDRESS_TYPE_UNDEFINED;
+char program_address_start_label[MAX_NAME_LENGTH + 1], program_address_end_label[MAX_NAME_LENGTH + 1];
+int program_address_start = -1, program_address_end = -1, program_address_start_type = LOAD_ADDRESS_TYPE_UNDEFINED, program_address_end_type = LOAD_ADDRESS_TYPE_UNDEFINED;
 int romsize, rombanks, banksize, verbose_mode = OFF, section_overwrite = OFF, symbol_mode = SYMBOL_MODE_NONE, output_addr_to_line = OFF;
 int pc_bank, pc_full, pc_slot, pc_slot_max;
 int file_header_size, file_footer_size, *banksizes = NULL, *bankaddress = NULL;
@@ -59,9 +61,8 @@ int output_mode = OUTPUT_ROM, discard_unreferenced_sections = OFF, use_libdir = 
 int program_start, program_end, sms_checksum, smstag_defined = 0, snes_rom_mode = SNES_ROM_MODE_LOROM, snes_rom_speed = SNES_ROM_SPEED_SLOWROM, sms_header = 0;
 int gb_checksum, gb_complement_check, snes_checksum, snes_mode = 0;
 int listfile_data = NO, smc_status = 0, snes_sramsize = 0;
-int output_type = OUTPUT_TYPE_UNDEFINED;
-int num_sorted_anonymous_labels = 0;
-
+int output_type = OUTPUT_TYPE_UNDEFINED, sort_sections = YES;
+int num_sorted_anonymous_labels = 0, create_sizeof_definitions = YES;
 
 extern struct section_fix *sec_fix_first, *sec_fix_tmp;
 extern char mem_insert_action[MAX_NAME_LENGTH*3 + 1024];
@@ -180,7 +181,7 @@ int main(int argc, char *argv[]) {
     x = FAILED;
 
   if (x == FAILED) {
-    printf("\nWLALINK GB-Z80/Z80/6502/65C02/65CE02/6510/65816/6800/6801/6809/8008/8080/HUC6280/SPC-700 WLA Macro Assembler Linker v5.13a\n");
+    printf("\nWLALINK GB-Z80/Z80/6502/65C02/65CE02/6510/65816/6800/6801/6809/8008/8080/HUC6280/SPC-700 WLA Macro Assembler Linker v5.14a\n");
     printf("Written by Ville Helin in 2000-2008 - In GitHub since 2014: https://github.com/vhelin/wla-dx\n");
 #ifdef WLALINK_DEBUG
     printf("*** WLALINK_DEBUG defined - this executable is running in DEBUG mode ***\n");
@@ -189,7 +190,11 @@ int main(int argc, char *argv[]) {
     printf("USAGE: %s [OPTIONS] <LINK FILE> <OUTPUT FILE>\n\n", argv[0]);
     printf("Options:\n");
     printf("-b  Program file output\n");
+    printf("-bS Starting address of the program (optional)\n");
+    printf("-bE Ending address of the program (optional)\n");
     printf("-d  Discard unreferenced sections\n");
+    printf("-D  Don't create _sizeof_* definitions\n");
+    printf("-nS Don't sort the sections\n");
     printf("-i  Write list files\n");
     printf("-r  ROM file output (default)\n");
     printf("-s  Write also a NO$GMB/NO$SNES symbol file\n");
@@ -271,8 +276,8 @@ int main(int argc, char *argv[]) {
   if (parse_data_blocks() == FAILED)
     return 1;
 
-  /* fix the library bank and slot of RAM sections, if specified in linkfile */
-  if (fix_ramsections() == FAILED)
+  /* fix the library bank, slot and org/orga of sections, if specified in linkfile */
+  if (fix_all_sections() == FAILED)
     return 1;
 
   /* check that all library RAM sections are given a bank and a slot */
@@ -427,9 +432,12 @@ int main(int argc, char *argv[]) {
      "HEADER",
      "SEMIFREE",
      "ABSOLUTE",
-     "RAM",
+     "RAM FREE",
      "SUPERFREE",
-     "SEMISUBFREE"
+     "SEMISUBFREE",
+     "RAM FORCE",
+     "RAM SEMIFREE",
+     "RAM SEMISUBFREE"
     };
 
     printf("\n");
@@ -463,8 +471,10 @@ int main(int argc, char *argv[]) {
     return 1;
 
   /* generate _sizeof_[label] definitions */
-  if (generate_sizeof_label_definitions() == FAILED)
-    return 1;
+  if (create_sizeof_definitions == YES) {
+    if (generate_sizeof_label_definitions() == FAILED)
+      return 1;
+  }
 
   /* sort anonymous labels to speed up searching for them */
   if (sort_anonymous_labels() == FAILED)
@@ -795,6 +805,38 @@ int parse_flags(char **flags, int flagc) {
       output_mode = OUTPUT_PRG;
       continue;
     }
+    else if (!strcmp(flags[count], "-bS")) {
+      if (count + 1 < flagc) {
+        /* get arg */
+	if (get_next_number(flags[count + 1], &program_address_start, NULL) == FAILED) {
+	  /* address must be an address label */
+	  strncpy(program_address_start_label, flags[count + 1], MAX_NAME_LENGTH);
+	  program_address_start_type = LOAD_ADDRESS_TYPE_LABEL;
+	}
+	else
+	  program_address_start_type = LOAD_ADDRESS_TYPE_VALUE;
+      }
+      else
+        return FAILED;
+      count++;
+      continue;
+    }
+    else if (!strcmp(flags[count], "-bE")) {
+      if (count + 1 < flagc) {
+        /* get arg */
+	if (get_next_number(flags[count + 1], &program_address_end, NULL) == FAILED) {
+	  /* address must be an address label */
+	  strncpy(program_address_end_label, flags[count + 1], MAX_NAME_LENGTH);
+	  program_address_end_type = LOAD_ADDRESS_TYPE_LABEL;
+	}
+	else
+	  program_address_end_type = LOAD_ADDRESS_TYPE_VALUE;
+      }
+      else
+        return FAILED;
+      count++;
+      continue;
+    }
     else if (!strcmp(flags[count], "-r")) {
       if (output_mode_defined == 1)
 	return FAILED;
@@ -845,6 +887,10 @@ int parse_flags(char **flags, int flagc) {
       listfile_data = YES;
       continue;
     }
+    else if (!strcmp(flags[count], "-nS")) {
+      sort_sections = NO;
+      continue;
+    }
     else if (!strcmp(flags[count], "-v")) {
       verbose_mode = ON;
       continue;
@@ -863,6 +909,10 @@ int parse_flags(char **flags, int flagc) {
     }
     else if (!strcmp(flags[count], "-d")) {
       discard_unreferenced_sections = ON;
+      continue;
+    }
+    else if (!strcmp(flags[count], "-D")) {
+      create_sizeof_definitions = NO;
       continue;
     }
     else {

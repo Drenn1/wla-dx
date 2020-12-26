@@ -18,7 +18,7 @@ extern char *unfolded_buffer, tmp[4096], emsg[sizeof(tmp) + MAX_NAME_LENGTH + 1 
 extern FILE *file_out_ptr;
 
 struct incbin_file_data *incbin_file_data_first = NULL, *ifd_tmp;
-struct active_file_info *active_file_info_first = NULL, *active_file_info_last = NULL, *active_file_info_tmp;
+struct active_file_info *active_file_info_first = NULL, *active_file_info_last = NULL, *active_file_info_tmp = NULL;
 struct file_name_info *file_name_info_first = NULL, *file_name_info_last = NULL, *file_name_info_tmp;
 char *include_in_tmp = NULL, *tmp_a = NULL;
 int include_in_tmp_size = 0, tmp_a_size = 0, file_name_id = 1, open_files = 0;
@@ -45,9 +45,9 @@ int create_full_name(char *dir, char *name) {
   /* compute the length of the new string */
   i = 0;
   if (dir != NULL)
-    i += strlen(dir);
+    i += (int)strlen(dir);
   if (name != NULL)
-    i += strlen(name);
+    i += (int)strlen(name);
   i++;
 
   if (i > full_name_size) {
@@ -72,11 +72,11 @@ int create_full_name(char *dir, char *name) {
 }
 
 
-int include_file(char *name) {
+int include_file(char *name, int *include_size, char *namespace) {
 
   static int first_load = 0;
-  int file_size, id;
-  char *tmp_b, *n, *tmp_c;
+  int file_size, id, change_file_buffer_size;
+  char *tmp_b, *n, *tmp_c, change_file_buffer[MAX_NAME_LENGTH * 2];
   FILE *f;
 
 
@@ -144,48 +144,22 @@ int include_file(char *name) {
 
   first_load = 1;
 
-  if (extra_definitions == ON) {
-    redefine("WLA_FILENAME", 0.0, name, DEFINITION_TYPE_STRING, (int)strlen(name));
-    redefine("wla_filename", 0.0, name, DEFINITION_TYPE_STRING, (int)strlen(name));
-  }
-
   fseek(f, 0, SEEK_END);
   file_size = (int)ftell(f);
   fseek(f, 0, SEEK_SET);
 
-  active_file_info_tmp = calloc(sizeof(struct active_file_info), 1);
-  if (active_file_info_tmp == NULL) {
-    snprintf(emsg, sizeof(emsg), "Out of memory while trying allocate error tracking data structure for file \"%s\".\n", full_name);
-    print_error(emsg, ERROR_INC);
-    fclose(f);
-    return FAILED;
-  }
-  active_file_info_tmp->next = NULL;
-
-  if (active_file_info_first == NULL) {
-    active_file_info_first = active_file_info_tmp;
-    active_file_info_last = active_file_info_tmp;
-    active_file_info_tmp->prev = NULL;
-  }
-  else {
-    active_file_info_tmp->prev = active_file_info_last;
-    active_file_info_last->next = active_file_info_tmp;
-    active_file_info_last = active_file_info_tmp;
-  }
-
-  active_file_info_tmp->line_current = 1;
-
   /* name */
   file_name_info_tmp = file_name_info_first;
   id = 0;
+  /* NOTE: every filename, even included multiple times, is unique
   while (file_name_info_tmp != NULL) {
     if (strcmp(file_name_info_tmp->name, full_name) == 0) {
       id = file_name_info_tmp->id;
-      active_file_info_tmp->filename_id = id;
       break;
     }
     file_name_info_tmp = file_name_info_tmp->next;
   }
+  */
 
   if (id == 0) {
     file_name_info_tmp = calloc(sizeof(struct file_name_info), 1);
@@ -212,10 +186,16 @@ int include_file(char *name) {
 
     strcpy(n, full_name);
     file_name_info_tmp->name = n;
-    active_file_info_tmp->filename_id = file_name_id;
     file_name_info_tmp->id = file_name_id;
+    id = file_name_id;
     file_name_id++;
   }
+
+  if (namespace == NULL || namespace[0] == 0)
+    snprintf(change_file_buffer, sizeof(change_file_buffer), "%c.CHANGEFILE %d NONAMESPACE%c", 0xA, id, 0xA);
+  else
+    snprintf(change_file_buffer, sizeof(change_file_buffer), "%c.CHANGEFILE %d NAMESPACE %s%c", 0xA, id, namespace, 0xA);
+  change_file_buffer_size = (int)strlen(change_file_buffer);
 
   /* reallocate buffer */
   if (include_in_tmp_size < file_size) {
@@ -240,27 +220,30 @@ int include_file(char *name) {
   file_name_info_tmp->checksum = crc32((unsigned char*)include_in_tmp, file_size);
 
   if (size == 0) {
-    buffer = calloc(sizeof(char) * (file_size + 4), 1);
+    buffer = calloc(sizeof(char) * (change_file_buffer_size + (file_size + 4)), 1);
     if (buffer == NULL) {
       snprintf(emsg, sizeof(emsg), "Out of memory while trying to allocate room for \"%s\".\n", full_name);
       print_error(emsg, ERROR_INC);
       return FAILED;
     }
 
+    memcpy(buffer, change_file_buffer, change_file_buffer_size);
+    
     /* preprocess */
-    preprocess_file(include_in_tmp, include_in_tmp + file_size, buffer, &size, full_name);
+    preprocess_file(include_in_tmp, include_in_tmp + file_size, &buffer[change_file_buffer_size], &size, full_name);
+    size += change_file_buffer_size;
 
     buffer[size++] = 0xA;
     buffer[size++] = '.';
     buffer[size++] = 'E';
     buffer[size++] = ' ';
 
-    open_files++;
+    *include_size = size;
 
     return SUCCEEDED;
   }
 
-  tmp_b = calloc(sizeof(char) * (size + file_size + 4), 1);
+  tmp_b = calloc(sizeof(char) * (size + change_file_buffer_size + file_size + 4), 1);
   if (tmp_b == NULL) {
     snprintf(emsg, sizeof(emsg), "Out of memory while trying to expand the project to incorporate file \"%s\".\n", full_name);
     print_error(emsg, ERROR_INC);
@@ -268,11 +251,11 @@ int include_file(char *name) {
   }
 
   /* reallocate tmp_a */
-  if (tmp_a_size < file_size + 4) {
+  if (tmp_a_size < change_file_buffer_size + file_size + 4) {
     if (tmp_a != NULL)
       free(tmp_a);
 
-    tmp_a = calloc(sizeof(char) * (file_size + 4), 1);
+    tmp_a = calloc(sizeof(char) * (change_file_buffer_size + file_size + 4), 1);
     if (tmp_a == NULL) {
       snprintf(emsg, sizeof(emsg), "Out of memory while allocating new room for \"%s\".\n", full_name);
       print_error(emsg, ERROR_INC);
@@ -280,19 +263,20 @@ int include_file(char *name) {
       return FAILED;
     }
 
-    tmp_a_size = file_size + 4;
+    tmp_a_size = change_file_buffer_size + file_size + 4;
   }
 
+  memcpy(tmp_a, change_file_buffer, change_file_buffer_size);
+      
   /* preprocess */
   inz = 0;
-  preprocess_file(include_in_tmp, include_in_tmp + file_size, tmp_a, &inz, full_name);
+  preprocess_file(include_in_tmp, include_in_tmp + file_size, &tmp_a[change_file_buffer_size], &inz, full_name);
+  inz += change_file_buffer_size;
 
   tmp_a[inz++] = 0xA;
   tmp_a[inz++] = '.';
   tmp_a[inz++] = 'E';
   tmp_a[inz++] = ' ';
-
-  open_files++;
 
   memcpy(tmp_b, buffer, i);
   memcpy(tmp_b + i, tmp_a, inz);
@@ -302,6 +286,8 @@ int include_file(char *name) {
 
   size += inz;
   buffer = tmp_b;
+
+  *include_size = inz;
   
   return SUCCEEDED;
 }
@@ -489,7 +475,8 @@ int incbin_file(char *name, int *id, int *swap, int *skip, int *read, struct mac
     if (get_next_token() == FAILED)
       return FAILED;
 
-    *macro = macro_get(tmp);
+    if (macro_get(tmp, YES, macro) == FAILED)
+      return FAILED;
 
     if (*macro == NULL) {
       snprintf(emsg, sizeof(emsg), "No MACRO \"%s\" defined.\n", tmp);
@@ -679,6 +666,18 @@ int preprocess_file(char *input, char *input_end, char *out_buffer, int *out_siz
       output++;
       for ( ; input < input_end && (*input == ' ' || *input == 0x09); input++)
 	;
+      if (got_chars_on_line == 0 && (*input == '-' || *input == '+')) {
+	/* special case - -/--/--- or +/++/+++, but not at the beginning of the line, but after some white space */
+	output--;
+	for ( ; input < input_end && (*input == '+' || *input == '-'); input++, output++)
+	  *output = *input;	
+      }
+      else if (got_chars_on_line == 0 && *input == '_') {
+	/* special case - _/__, but not at the beginning of the line, but after some white space */
+	output--;
+	for ( ; input < input_end && *input == '_'; input++, output++)
+	  *output = *input;	
+      }
       got_chars_on_line = 1;
       if (z == 1)
 	z = 2;

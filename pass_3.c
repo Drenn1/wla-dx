@@ -17,7 +17,7 @@ extern struct file_name_info *file_name_info_first, *file_name_info_last, *file_
 extern struct block_name *block_names;
 extern unsigned char *rom_banks, *rom_banks_usage_table;
 extern FILE *file_out_ptr;
-extern char *tmp_name, tmp[4096], emsg[1024];
+extern char *tmp_name, tmp[4096], emsg[1024], namespace[MAX_NAME_LENGTH + 1];
 extern int verbose_mode, section_status, cartridgetype, output_format;
 
 
@@ -25,7 +25,7 @@ struct label_def *label_next, *label_last, *label_tmp, *labels = NULL;
 struct map_t *global_unique_label_map = NULL;
 struct block *blocks = NULL;
 
-static int dstruct_start, dstruct_item_offset, dstruct_item_size;
+static int dstruct_start, dstruct_item_offset, dstruct_item_size, mangled_label;
 
 #define XSTRINGIFY(x) #x
 #define STRINGIFY(x) XSTRINGIFY(x)
@@ -51,6 +51,8 @@ int pass_3(void) {
   memset(parent_labels, 0, sizeof(parent_labels));
   s = NULL;
 
+  namespace[0] = 0;
+  
   if (verbose_mode == ON)
     printf("Internal pass 1...\n");
 
@@ -175,6 +177,14 @@ int pass_3(void) {
 	free(b);
 	continue;
 
+      case 't':
+	fscanf(f_in, "%d ", &inz);
+	if (inz == 0)
+	  namespace[0] = 0;
+	else
+	  fscanf(f_in, STRING_READ_FORMAT, namespace);
+	continue;
+
       case 'Z': /* breakpoint */
       case 'Y': /* symbol */
       case 'L': /* label */
@@ -198,13 +208,14 @@ int pass_3(void) {
 	else
 	  fscanf(f_in, STRING_READ_FORMAT, l->label);
 
-        if (c == 'L' && is_label_anonymous(l->label) == FAILED) {
+	mangled_label = NO;
+
+        if (c == 'L' && is_label_anonymous(l->label) == NO) {
           /* if the label has '@' at the start, mangle the label name to make it unique */
           int n = 0, m;
 
-          while (n < 10 && l->label[n] == '@') {
+          while (n < 10 && l->label[n] == '@')
             n++;
-          }
           m = n;
           while (m < 10)
             parent_labels[m++] = NULL;
@@ -218,8 +229,16 @@ int pass_3(void) {
           if (n >= 0) {
             if (mangle_label(l->label, parent_labels[n]->label, n, MAX_NAME_LENGTH) == FAILED)
               return FAILED;
+	    mangled_label = YES;
           }
         }
+
+        if (c == 'L' && is_label_anonymous(l->label) == NO && namespace[0] != 0 && mangled_label == NO) {
+	  if (s == NULL || s->nspace == NULL) {
+	    if (add_namespace(l->label, namespace, sizeof(l->label)) == FAILED)
+	      return FAILED;
+	  }
+	}
 
 	l->next = NULL;
 	l->section_status = ON;
@@ -234,7 +253,7 @@ int pass_3(void) {
 	l->slot = s->slot;
 	l->base = base;
 
-	if (c == 'Z' || is_label_anonymous(l->label) == SUCCEEDED) {
+	if (c == 'Z' || is_label_anonymous(l->label) == YES) {
 	  if (labels != NULL) {
 	    label_last->next = l;
 	    label_last = l;
@@ -289,7 +308,6 @@ int pass_3(void) {
           }
         }
 
-
 	if (labels != NULL) {
 	  label_last->next = l;
 	  label_last = l;
@@ -331,7 +349,15 @@ int pass_3(void) {
 	  section_status = ON;
 	  continue;
 	}
-
+	else if (s->status == SECTION_STATUS_RAM_SEMIFREE || s->status == SECTION_STATUS_RAM_SEMISUBFREE) {
+	  s->address = add;
+	  s->listfile_items = 1;
+	  s->listfile_ints = NULL;
+	  s->listfile_cmds = NULL;
+	  section_status = ON;
+	  continue;
+	}
+	
 	fprintf(stderr, "INTERNAL_PASS_1: .ORG needs to be set before any code/data can be accepted.\n");
 	return FAILED;
 
@@ -400,6 +426,14 @@ int pass_3(void) {
       case 'f':
 	fscanf(f_in, "%d ", &file_name_id);
 	continue;
+
+      case 't':
+	fscanf(f_in, "%d ", &inz);
+	if (inz == 0)
+	  namespace[0] = 0;
+	else
+	  fscanf(f_in, STRING_READ_FORMAT, namespace);
+	continue;	
 
       case 'S':
 	fscanf(f_in, "%d ", &inz);
@@ -493,7 +527,7 @@ int pass_3(void) {
       if (s->status == SECTION_STATUS_FREE || s->status == SECTION_STATUS_RAM_FREE)
 	add = 0;
 
-      if (s->status != SECTION_STATUS_RAM_FREE && s->status != SECTION_STATUS_RAM_FORCE) {
+      if (s->status != SECTION_STATUS_RAM_FREE && s->status != SECTION_STATUS_RAM_FORCE && s->status != SECTION_STATUS_RAM_SEMIFREE && s->status != SECTION_STATUS_RAM_SEMISUBFREE) {
         s->bank = bank;
         s->base = base;
         s->slot = slot;
@@ -657,6 +691,14 @@ int pass_3(void) {
       free(b);
       continue;
 
+    case 't':
+      fscanf(f_in, "%d ", &inz);
+      if (inz == 0)
+	namespace[0] = 0;
+      else
+	fscanf(f_in, STRING_READ_FORMAT, namespace);
+      continue;
+
     case 'Z': /* breakpoint */
     case 'Y': /* symbol */
     case 'L': /* label */
@@ -680,7 +722,9 @@ int pass_3(void) {
       else
 	fscanf(f_in, STRING_READ_FORMAT, l->label);
 
-      if (c == 'L' && is_label_anonymous(l->label) == FAILED) {
+      mangled_label = NO;
+      
+      if (c == 'L' && is_label_anonymous(l->label) == NO) {
         /* if the label has '@' at the start, mangle the label name to make it unique */
         int n = 0, m;
 
@@ -699,9 +743,17 @@ int pass_3(void) {
         if (n >= 0) {
           if (mangle_label(l->label, parent_labels[n]->label, n, MAX_NAME_LENGTH) == FAILED)
             return FAILED;
+	  mangled_label = YES;
         }
       }
 
+      if (c == 'L' && is_label_anonymous(l->label) == NO && namespace[0] != 0 && mangled_label == NO) {
+	if (s == NULL || s->nspace == NULL) {
+	  if (add_namespace(l->label, namespace, sizeof(l->label)) == FAILED)
+	    return FAILED;
+	}
+      }
+      
       l->next = NULL;
       l->section_status = section_status;
       l->filename_id = file_name_id;
@@ -725,7 +777,7 @@ int pass_3(void) {
 
       l->base = base;
 
-      if (c == 'Z' || is_label_anonymous(l->label) == SUCCEEDED) {
+      if (c == 'Z' || is_label_anonymous(l->label) == YES) {
 	if (labels != NULL) {
 	  label_last->next = l;
 	  label_last = l;
@@ -849,18 +901,18 @@ int is_label_anonymous(char *label) {
   char c;
 
   if (strcmp(label, "__") == 0)
-    return SUCCEEDED;
+    return YES;
 
   c = *label;
   if (!(c == '-' || c == '+'))
-    return FAILED;
+    return NO;
   length = (int)strlen(label);
   for (i = 0; i < length; i++) {
     if (*(label + i) != c)
-      return FAILED;
+      return NO;
   }
 
-  return SUCCEEDED;
+  return YES;
 }
 
 
@@ -880,6 +932,27 @@ int mangle_label(char *label, char *parent, int n, unsigned int label_size) {
   }
 
   buf[label_size-1] = 0;
+  strcpy(label, buf);
+
+  return SUCCEEDED;
+}
+
+
+int add_namespace(char *label, char *name_space, unsigned int label_size) {
+
+  char buf[MAX_NAME_LENGTH*2+2];
+
+  if (strncmp(label, "SECTIONSTART_", strlen("SECTIONSTART_")) == 0)
+    return SUCCEEDED;
+  if (strncmp(label, "SECTIONEND_", strlen("SECTIONEND_")) == 0)
+    return SUCCEEDED;
+  
+  snprintf(buf, sizeof(buf), "%s.%s", name_space, label);
+  if (strlen(buf) >= label_size) {
+    fprintf(stderr, "ADD_NAMESPACE: Label expands to \"%s\" which is %d characters too large.\n", buf, (int)(strlen(buf)-label_size+1));
+    return FAILED;
+  }
+
   strcpy(label, buf);
 
   return SUCCEEDED;

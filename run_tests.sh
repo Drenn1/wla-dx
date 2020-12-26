@@ -103,6 +103,7 @@ runTest checksum_12mbit_lorom
 runTest checksum_24mbit_lorom
 runTest checksum_8mbit_hirom
 runTest checksum_8mbit_lorom
+runTest dlm_test
 runTest linker_test
 runTest macro_test
 runTest name_test
@@ -157,6 +158,8 @@ runTest ram_sections
 runTest rept_test
 runTest sdsc_test
 runTest sms_test
+runTest smschecksum_test_1
+runTest smschecksum_test_2
 runTest smsheader_test
 runTest z81_test
 cd ..

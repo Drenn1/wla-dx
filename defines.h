@@ -89,6 +89,7 @@
 /* j - rept start          */
 /* J - rept end            */
 /* v - special case ID     */
+/* t - namespace           */
 
 /**************************************************************/
 /* gb-z80                                                     */
@@ -476,13 +477,14 @@ struct macro_incbin {
 #define MACRO_CALLER_NORMAL 0
 #define MACRO_CALLER_DBM    1
 #define MACRO_CALLER_DWM    2
-#define MACRO_CALLER_INCBIN 3
+#define MACRO_CALLER_DLM    3
+#define MACRO_CALLER_INCBIN 4
 
 struct macro_runtime {
   struct macro_static *macro;
-  int  macro_end;
-  int  macro_end_line;
-  int  macro_end_filename_id;
+  int  macro_return_i;
+  int  macro_return_line;
+  int  macro_return_filename_id;
   int  supplied_arguments;
   int  caller;
   char string[MAX_NAME_LENGTH + 1];
@@ -514,8 +516,10 @@ struct label_def {
 struct section_def {
   char name[MAX_NAME_LENGTH + 1];
   int  alignment;
+  int  offset;
   int  priority;
   int  address; /* in bank */
+  int  keep;
   int  bank;
   int  base;
   int  slot;
@@ -552,6 +556,7 @@ struct export_def {
 struct active_file_info {
   int    filename_id;
   int    line_current;
+  char   namespace[MAX_NAME_LENGTH + 1];
   struct active_file_info *next;
   struct active_file_info *prev;
 };
@@ -623,6 +628,7 @@ struct structure_item {
   /* only for TYPE_INSTANCE */
   struct structure *instance;
   int num_instances;
+  int start_from;
 
   /* only for TYPE_UNION; each union entry is stored as a structure. */
   struct structure *union_items;
@@ -658,6 +664,22 @@ struct filepointer {
   char *filename;
   FILE *f;
   struct filepointer *next;
+};
+
+struct stringmap_entry {
+  int bytes_length;
+  unsigned char *bytes;
+  int text_length;
+  char *text;
+
+  struct stringmap_entry *next;
+};
+
+struct stringmaptable {
+  char name[MAX_NAME_LENGTH + 1];
+  struct stringmap_entry *entries;
+
+  struct stringmaptable *next;
 };
 
 #define TYPE_STRING            0

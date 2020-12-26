@@ -53,6 +53,7 @@
 #define STATE_FOOTER      4
 #define STATE_DEFINITION  5
 #define STATE_RAMSECTIONS 6
+#define STATE_SECTIONS    7
 
 #define SYMBOL_MODE_NONE   0
 #define SYMBOL_MODE_NOCA5H 1
@@ -146,6 +147,7 @@ struct section {
   int  address;
   int  output_address;
   int  status;
+  int  keep;
   int  bank;
   int  slot;
   int  size;
@@ -157,6 +159,7 @@ struct section {
   int  referenced;
   int  alive;
   int  alignment;
+  int  offset;
   int  listfile_items;
   int  *listfile_ints;
   char *listfile_cmds;
@@ -172,8 +175,17 @@ struct section_fix {
   char file_name[MAX_NAME_LENGTH + 1];
   char slot_name[MAX_NAME_LENGTH + 1];
   int  line_number;
+  int  keep;
   int  bank;
   int  slot;
+  int  orga;
+  int  org;
+  int  status;
+  int  alignment;
+  int  offset;
+  int  priority;
+  int  priority_defined;
+  int  is_ramsection;
   struct section_fix *next;
 };
 

@@ -67,7 +67,7 @@ struct label_def *parent_labels[10];
 struct append_section *append_tmp;
 struct label_sizeof *label_sizeof_tmp;
 
-char mem_insert_action[MAX_NAME_LENGTH*3 + 1024];
+char mem_insert_action[MAX_NAME_LENGTH*3 + 1024], namespace[MAX_NAME_LENGTH + 1];
 
 int pc_bank = 0, pc_full = 0, rom_bank, mem_insert_overwrite, slot = 0, base = 0, pc_slot, pc_slot_max;
 int filename_id, line_number;
@@ -80,6 +80,10 @@ static int dstruct_start = -1, special_id = 0;
   cp = (unsigned char *)&dou; \
   fprintf(final_ptr, "%c%c%c%c%c%c%c%c", cp[0], cp[1], cp[2], cp[3], cp[4], cp[5], cp[6], cp[7]); \
 }
+
+#define XSTRINGIFY(x) #x
+#define STRINGIFY(x) XSTRINGIFY(x)
+#define STRING_READ_FORMAT ("%" STRINGIFY(MAX_NAME_LENGTH) "s ")
 
 
 
@@ -194,6 +198,59 @@ int mangle_stack_references(struct stack *stack) {
 }
 
 
+int add_namespace_to_reference(char *label, char *name_space, unsigned int label_size) {
+
+  char expanded[MAX_NAME_LENGTH*2+2];
+  struct label_def *l;
+  
+  snprintf(expanded, sizeof(expanded), "%s.%s", name_space, label);
+  if (strlen(expanded) >= label_size) {
+    fprintf(stderr, "ADD_NAMESPACE_TO_REFERENCE: Label expands to \"%s\" which is %d characters too large.\n", expanded, (int)(strlen(expanded)-label_size+1));
+    return FAILED;
+  }
+
+  /* use the expanded version only if we can find it */
+  
+  /* label in a namespace? */
+  if (section_status == ON && sec_tmp != NULL && sec_tmp->nspace != NULL) {
+    if (hashmap_get(sec_tmp->nspace->label_map, expanded, (void*)&l) == MAP_OK) {
+      if (filename_id == l->filename_id) {
+	strcpy(label, expanded);
+	return SUCCEEDED;
+      }
+    }
+  }
+
+  /* global label? */
+  if (hashmap_get(global_unique_label_map, expanded, (void*)&l) == MAP_OK) {
+    if (filename_id == l->filename_id) {
+      strcpy(label, expanded);
+      return SUCCEEDED;
+    }
+  }
+
+  return SUCCEEDED;
+}
+
+
+int add_namespace_to_stack_references(struct stack *st, char *name_space) {
+
+  int j;
+
+  for (j = 0; j < st->stacksize; j++) {
+    if (st->stack[j].type == STACK_ITEM_TYPE_STRING) {
+      if (is_label_anonymous(st->stack[j].string) == YES)
+	continue;
+      
+      if (add_namespace_to_reference(st->stack[j].string, name_space, sizeof(st->stack[j].string)) == FAILED)
+	return FAILED;
+    }
+  }
+
+  return SUCCEEDED;
+}
+
+
 int pass_4(void) {
 
   unsigned char *cp;
@@ -205,6 +262,8 @@ int pass_4(void) {
 
   memset(parent_labels, 0, sizeof(parent_labels));
 
+  namespace[0] = 0;
+  
   section_status = OFF;
   bankheader_status = OFF;
   mem_insert_overwrite = OFF;
@@ -259,6 +318,14 @@ int pass_4(void) {
         fscanf(file_out_ptr, "%d ", &line_number);
         continue;
 
+      case 't':
+	fscanf(file_out_ptr, "%d ", &inz);
+	if (inz == 0)
+	  namespace[0] = 0;
+	else
+	  fscanf(file_out_ptr, STRING_READ_FORMAT, namespace);
+	continue;
+	
         /* SECTION */
 
       case 'A':
@@ -538,7 +605,6 @@ int pass_4(void) {
 
       case 'O':
       case 'B':
-
         if (c == 'O')
           fscanf(file_out_ptr, "%d", &pc_bank);
         else {
@@ -569,11 +635,11 @@ int pass_4(void) {
       case 'L':
         {
           struct label_def *l;
-          int m, n = 0;
+          int m, n = 0, mangled_label = NO;
 
-          fscanf(file_out_ptr, "%256s", tmp);
+          fscanf(file_out_ptr, STRING_READ_FORMAT, tmp);
 
-          if (is_label_anonymous(tmp) == FAILED) {
+          if (is_label_anonymous(tmp) == NO) {
             while (n < 10 && tmp[n] == '@')
               n++;
 
@@ -589,9 +655,18 @@ int pass_4(void) {
             if (n >= 0) {
               if (mangle_label(tmp, parent_labels[n]->label, n, MAX_NAME_LENGTH) == FAILED)
                 return FAILED;
+	      mangled_label = YES;
             }
+
+	    if (namespace[0] != 0 && mangled_label == NO) {
+	      if (section_status == OFF || sec_tmp->nspace == NULL) {
+		if (add_namespace(tmp, namespace, sizeof(tmp)) == FAILED)
+		  return FAILED;
+	      }
+	    }
+	    
             if (m < 10 && find_label(tmp, sec_tmp, (void*)&l) == SUCCEEDED)
-              parent_labels[m] = l;
+	      parent_labels[m] = l;
           }
         }
         continue;
@@ -634,6 +709,13 @@ int pass_4(void) {
 	
         if (mangle_stack_references(stacks_tmp) == FAILED)
           return FAILED;
+
+	if (namespace[0] != 0) {
+	  if (section_status == OFF || sec_tmp->nspace == NULL) {
+	    if (add_namespace_to_stack_references(stacks_tmp, namespace) == FAILED)
+	      return FAILED;
+	  }
+	}
 
         /* this stack was referred from the code */
         stacks_tmp->position = STACK_POSITION_CODE;
@@ -684,6 +766,13 @@ int pass_4(void) {
         if (mangle_stack_references(stacks_tmp) == FAILED)
           return FAILED;
 
+	if (namespace[0] != 0) {
+	  if (section_status == OFF || sec_tmp->nspace == NULL) {
+	    if (add_namespace_to_stack_references(stacks_tmp, namespace) == FAILED)
+	      return FAILED;
+	  }
+	}
+	
         /* this stack was referred from the code */
         stacks_tmp->position = STACK_POSITION_CODE;
 
@@ -736,6 +825,13 @@ int pass_4(void) {
         if (mangle_stack_references(stacks_tmp) == FAILED)
           return FAILED;
 
+	if (namespace[0] != 0) {
+	  if (section_status == OFF || sec_tmp->nspace == NULL) {
+	    if (add_namespace_to_stack_references(stacks_tmp, namespace) == FAILED)
+	      return FAILED;
+	  }
+	}
+	
         /* this stack was referred from the code */
         stacks_tmp->position = STACK_POSITION_CODE;
 
@@ -788,6 +884,13 @@ int pass_4(void) {
         if (mangle_stack_references(stacks_tmp) == FAILED)
           return FAILED;
 
+	if (namespace[0] != 0) {
+	  if (section_status == OFF || sec_tmp->nspace == NULL) {
+	    if (add_namespace_to_stack_references(stacks_tmp, namespace) == FAILED)
+	      return FAILED;
+	  }
+	}
+	
         /* this stack was referred from the code */
         stacks_tmp->position = STACK_POSITION_CODE;
 
@@ -806,8 +909,15 @@ int pass_4(void) {
         /* 24BIT REFERENCE */
 
       case 'q':
-        fscanf(file_out_ptr, "%256s", tmp);
+        fscanf(file_out_ptr, STRING_READ_FORMAT, tmp);
 
+	if (namespace[0] != 0) {
+	  if (section_status == OFF || sec_tmp->nspace == NULL) {
+	    if (add_namespace_to_reference(tmp, namespace, sizeof(tmp)) == FAILED)
+	      return FAILED;
+	  }
+	}
+	  
         x = 0;
         hashmap_get(defines_map, tmp, (void*)&tmp_def);
         if (tmp_def != NULL) {
@@ -862,8 +972,15 @@ int pass_4(void) {
         /* 16BIT PC RELATIVE REFERENCE */
 
       case 'M':
-        fscanf(file_out_ptr, "%256s", tmp);
+        fscanf(file_out_ptr, STRING_READ_FORMAT, tmp);
 
+	if (namespace[0] != 0) {
+	  if (section_status == OFF || sec_tmp->nspace == NULL) {
+	    if (add_namespace_to_reference(tmp, namespace, sizeof(tmp)) == FAILED)
+	      return FAILED;
+	  }
+	}
+		
         x = 0;
         hashmap_get(defines_map, tmp, (void*)&tmp_def);
         if (tmp_def != NULL) {
@@ -912,9 +1029,16 @@ int pass_4(void) {
         /* 16BIT REFERENCE */
 
       case 'r':
-        fscanf(file_out_ptr, "%256s", tmp);
+        fscanf(file_out_ptr, STRING_READ_FORMAT, tmp);
 
-        x = 0;
+	if (namespace[0] != 0) {
+	  if (section_status == OFF || sec_tmp->nspace == NULL) {
+	    if (add_namespace_to_reference(tmp, namespace, sizeof(tmp)) == FAILED)
+	      return FAILED;
+	  }
+	}
+
+	x = 0;
         hashmap_get(defines_map, tmp, (void*)&tmp_def);
         if (tmp_def != NULL) {
           if (tmp_def->type == DEFINITION_TYPE_STRING) {
@@ -963,9 +1087,17 @@ int pass_4(void) {
         /* 13BIT REFERENCE */
 
       case 'n':
-        fscanf(file_out_ptr, "%d %256s", &inz, tmp);
+        fscanf(file_out_ptr, "%d ", &inz);
+	fscanf(file_out_ptr, STRING_READ_FORMAT, tmp);
 
-        x = 0;
+	if (namespace[0] != 0) {
+	  if (section_status == OFF || sec_tmp->nspace == NULL) {
+	    if (add_namespace_to_reference(tmp, namespace, sizeof(tmp)) == FAILED)
+	      return FAILED;
+	  }
+	}
+
+	x = 0;
         hashmap_get(defines_map, tmp, (void*)&tmp_def);
         if (tmp_def != NULL) {
           if (tmp_def->type == DEFINITION_TYPE_STRING) {
@@ -1010,9 +1142,16 @@ int pass_4(void) {
         /* 8BIT PC RELATIVE REFERENCE */
 
       case 'R':
-        fscanf(file_out_ptr, "%256s", tmp);
+        fscanf(file_out_ptr, STRING_READ_FORMAT, tmp);
 
-        x = 0;
+	if (namespace[0] != 0) {
+	  if (section_status == OFF || sec_tmp->nspace == NULL) {
+	    if (add_namespace_to_reference(tmp, namespace, sizeof(tmp)) == FAILED)
+	      return FAILED;
+	  }
+	}
+
+	x = 0;
         hashmap_get(defines_map, tmp, (void*)&tmp_def);
         if (tmp_def != NULL) {
           if (tmp_def->type == DEFINITION_TYPE_STRING) {
@@ -1048,9 +1187,16 @@ int pass_4(void) {
         /* 8BIT REFERENCE */
 
       case 'Q':
-        fscanf(file_out_ptr, "%256s", tmp);
+        fscanf(file_out_ptr, STRING_READ_FORMAT, tmp);
 
-        x = 0;
+	if (namespace[0] != 0) {
+	  if (section_status == OFF || sec_tmp->nspace == NULL) {
+	    if (add_namespace_to_reference(tmp, namespace, sizeof(tmp)) == FAILED)
+	      return FAILED;
+	  }
+	}
+
+	x = 0;
         hashmap_get(defines_map, tmp, (void*)&tmp_def);
         if (tmp_def != NULL) {
           if (tmp_def->type == DEFINITION_TYPE_STRING) {
@@ -1087,13 +1233,15 @@ int pass_4(void) {
 
       case 'e':
         fscanf(file_out_ptr, "%d %d ", &x, &y);
-        if (y == -1) { /* Mark start of .DSTRUCT */
+        if (y == -1) {
+	  /* mark start of .DSTRUCT */
           dstruct_start = pc_full;
-          /* Make sure all data in a section gets set to emptyfill */
+          /* make sure all data in a section gets set to emptyfill */
           if (section_status == ON)
             memset(sec_tmp->data + sec_tmp->i, emptyfill, x);
         }
-        else if (y == -2) { /* End of .DSTRUCT. Make sure all memory is claimed. */
+        else if (y == -2) {
+	  /* end of .DSTRUCT. make sure all memory is claimed. */
           while (pc_full < dstruct_start + x) {
             if (section_status == OFF && rom_banks_usage_table[pc_full] == 0) {
               rom_banks_usage_table[pc_full] = 2;
@@ -1106,7 +1254,8 @@ int pass_4(void) {
             pc_full++;
           }
         }
-        else { /* Seek offset relative to dstruct start */
+        else {
+	  /* seek offset relative to dstruct start */
           if (section_status == ON)
             sec_tmp->i = sec_tmp->i + (dstruct_start - pc_full) + x;
           pc_bank = pc_bank + (dstruct_start - pc_full) + x;
@@ -1128,7 +1277,7 @@ int pass_4(void) {
     }
 
     /* header */
-    fprintf(final_ptr, "WLA7");
+    fprintf(final_ptr, "WLA9");
 
     /* misc bits */
     ind = 0;
@@ -1293,7 +1442,7 @@ int pass_4(void) {
     sec_tmp = sections_first;
     while (sec_tmp != NULL) {
       if (sec_tmp->alive == ON) {
-        fprintf(final_ptr, "%s%c", sec_tmp->name, sec_tmp->status);
+        fprintf(final_ptr, "%s%c%c", sec_tmp->name, sec_tmp->status, sec_tmp->keep);
         if (sec_tmp->nspace == NULL)
           fprintf(final_ptr, "%c", 0);
         else
@@ -1307,6 +1456,8 @@ int pass_4(void) {
         ov = sec_tmp->size;
         WRITEOUT_OV;
         ov = sec_tmp->alignment;
+        WRITEOUT_OV;
+	ov = sec_tmp->offset;
         WRITEOUT_OV;
 	ov = sec_tmp->priority;
 	WRITEOUT_OV;
@@ -1332,7 +1483,7 @@ int pass_4(void) {
     }
 
     /* header */
-    fprintf(final_ptr, "WLAY%c", emptyfill);
+    fprintf(final_ptr, "WLAa%c", emptyfill);
 
     /* misc bits */
     ind = 0;
@@ -1581,9 +1732,8 @@ int pass_4(void) {
       
       for (ind = 0; ind < stacks_tmp->stacksize; ind++) {
         fprintf(final_ptr, "%c%c", stacks_tmp->stack[ind].type, stacks_tmp->stack[ind].sign);
-        if (stacks_tmp->stack[ind].type == STACK_ITEM_TYPE_STRING) {
+        if (stacks_tmp->stack[ind].type == STACK_ITEM_TYPE_STRING)
           fprintf(final_ptr, "%s%c", stacks_tmp->stack[ind].string, 0);
-        }
         else {
           dou = stacks_tmp->stack[ind].value;
           WRITEOUT_DOU;
@@ -1698,7 +1848,7 @@ int pass_4(void) {
     while (sec_tmp != NULL) {
       if (sec_tmp->alive == ON) {
         /* section block id */
-        fprintf(final_ptr, "%c%s%c", 0x1, sec_tmp->name, sec_tmp->status);
+        fprintf(final_ptr, "%c%s%c%c", 0x1, sec_tmp->name, sec_tmp->status, sec_tmp->keep);
         if (sec_tmp->nspace == NULL)
           fprintf(final_ptr, "%c", 0);
         else
@@ -1718,6 +1868,8 @@ int pass_4(void) {
         ov = sec_tmp->size;
         WRITEOUT_OV;
         ov = sec_tmp->alignment;
+        WRITEOUT_OV;
+	ov = sec_tmp->offset;
         WRITEOUT_OV;
 	ov = sec_tmp->priority;
 	WRITEOUT_OV;
@@ -1871,7 +2023,7 @@ int find_label(char *str, struct section_def *s, struct label_def **out) {
 
 
 int mem_insert(unsigned char x) {
-
+  
   if (section_status == ON) {
     if (sec_tmp->i >= sec_tmp->size || sec_tmp->i < 0) {
       fprintf(stderr, "MEM_INSERT: Overflowed from section \"%s\"; Please send a bug report!\n", sec_tmp->name);

@@ -3,7 +3,12 @@
 1... WLA GB-Z80/Z80/6502/65C02/65CE02/6510/65816/6800/6801/6809/8008/8080/HUC6280/SPC-700 History
 -------------------------------------------------------------------------------------------------
 
-v9.11 (08-Mar-2020) [ALL] Stack calculator's string checker handled only
+v9.12 (03-Dec-2020) [ALL] Added support for ADDR and FARADDR to .TABLE.
+                    [ALL] Added .STRINGMAP and .STRINGMAPTABLE.
+                    [Z80] Fixed the broken (broke in v9.11) regioncode
+                      in .SMSHEADER.
+
+v9.11 (17-Jul-2020) [ALL] Stack calculator's string checker handled only
                       63 characters long strings.
                     [ALL] A directive with the first argument being
                       negative wasn't parsed properly.
@@ -30,15 +35,44 @@ v9.11 (08-Mar-2020) [ALL] Stack calculator's string checker handled only
                       snprintf(), changed all sprintf() calls to snprintf().
                     [ALL] It's possible to skip bytes in .RAMSECTIONs using
                       "." as the label.
-                    [ALL] Added support for FORCE to .RAMSECTION.
+                    [ALL] Added support for FORCE, SEMIFREE and SEMISUBFREE
+                      to .RAMSECTION.
+                    [ALL] Added OFFSET to .SECTION and .RAMSECTION.
                     [ALL] The type of the argument for a .MACRO can now be
                       asked in an .IF using e.g., '\?1'.
+                    [ALL] Added a flag "-s" to disable _sizeof_* definition
+                      creation.
+                    [ALL] .DSTRUCT can now create child labels (e.g.,
+                      ".DSTRUCT @Instance INSTANCEOF MyStruct VALUES").
+                    [ALL] WLA assembles now "WLA9" library files and "WLAa"
+                      object files.
+                    [ALL] .ENDST should be case insensitive in all cases.
+                    [ALL] .INCLUDE/.INC can now be used inside .MACROs.
+                    [ALL] .INCLUDE/.INC can now be given the filename in
+                      pieces, e.g. ".INC ROOTDIR, SUBDIR, "filename.s"".
+                    [ALL] Added ONCE to .INCLUDE/.INC.
+                    [ALL] Macro calls can now be made from the very beginning
+                      of a new line (where labels are).
+                    [ALL] Added NAMESPACE to .INCLUDE/.INC.
+                    [ALL] Improved WLA's string.length parsing capabilities.
+                    [ALL] Sections can avoid WLALINK's discard mechanism
+                      with a keyword "KEEP" ('!' at the beginning of a
+                      .SECTION's name works still also).
+                    [ALL] Un-named labels (like "-", "+" and "__") don't need
+                      to be defined at the very beginning of the line either.
+                    [ALL] Removed some redundant definitions from .RAMSECTION
+                      (.STRUCT) INSTANCEOF when the number of instances > 1.
+                    [ALL] Added support for optional STARTFROM to .RAMSECTION
+                      (.STRUCT) INSTANCEOF (starting index other than 1).
                     [Z80] Removed warnings for "JP (HL)", "JP (IX)" and
                       "JP (IY)".
+                    [Z80] Added ROMSIZE to .SMSHEADER. Fixed automatic
+                      ROMSIZE calculation.
                     [6CE] Added support for CSG65CE02.
                     [65C] Added support for W65C02S's "WAI" and "STP".
                     [658] Added support for WDC standard mnemonics via .WDC
                       and .NOWDC.
+                    [658] Added support for .DLM (24-bit version of .DBM).
 
 v9.10 (22-Dec-2019) [808] Added support for I8080.
                     [658] Fixed SNES ROM checksum calculation.
@@ -186,7 +220,7 @@ v9.7 (17-Apr-2018) [ALL] We now use CMake instead of plain Makefiles.
                    [ALL] WLALINK now reserves the bytes the checksummer uses
                      if WLA is used to calculate a checksum.
                    [ALL] Added ALIGN to .RAMSECTIONs.
-                   [ALL] .RANSECTIONs now use the BANK when placing sections.
+                   [ALL] .RAMSECTIONs now use the BANK when placing sections.
                    [ALL] .BLOCK needs to be now terminated with .ENDB.
                    [ALL] Fixed some typos in error messages.
                    [ALL] Added a directory called "bug_exhibition" for
@@ -1140,7 +1174,18 @@ v1.0 (10-Jul-2000) The first public release.
 ------------------------------------------------------------------------------
 
 
-v5.13 (23-Jan-2020) Added CMB PRG header writing (with flags -t and -a).
+v5.14 (10-Dec-2020) Fixed buggy symbol file name generation.
+                    Fixed SMS checksum calculation if .SMSHEADER is not used.
+                    Added -D (don't create _sizeof_* definitions).
+
+v5.13 (17-Jun-2020) Added CMB PRG header writing (with flags -t and -a).
+                    Added support for ORG/ORGA to [ramsections].
+                    Added support for [sections] in linkfile.
+                    Added support for section type and priority changing
+                      to [ramsections] and [sections].
+                    Added -bS and -bE (start and end addresses of the
+                      program).
+                    Added -nS (don't sort the sections).
 
 v5.12 (22-Dec-2019) Relaxed the checks regarding misc bits (e.g., SNES ROM
                       mode, GB checksum...) when loading the object files.

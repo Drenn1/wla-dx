@@ -40,8 +40,8 @@ FILE *file_out_ptr = NULL;
 __near long __stack = 200000;
 #endif
 
-char version_string[] = "$VER: wla-" WLA_NAME " 9.11a (8.3.2020)";
-char wla_version[] = "9.11a";
+char version_string[] = "$VER: wla-" WLA_NAME " 9.12a (3.12.2020)";
+char wla_version[] = "9.12";
 
 char *tmp_name = NULL;
 
@@ -63,8 +63,9 @@ extern struct map_t *namespace_map;
 extern struct append_section *append_sections;
 extern struct label_sizeof *label_sizeofs;
 extern struct block_name *block_names;
+extern struct stringmaptable *stringmaptables;
 extern char mem_insert_action[MAX_NAME_LENGTH*3 + 1024];
-extern char *unfolded_buffer;
+extern char *unfolded_buffer, *label_stack[256];
 extern char *include_in_tmp, *tmp_a;
 extern char *rom_banks, *rom_banks_usage_table;
 extern char *include_dir, *buffer, *full_name;
@@ -73,14 +74,14 @@ extern int include_in_tmp_size, tmp_a_size, *banks, *bankaddress;
 int output_format = OUTPUT_NONE, verbose_mode = OFF, test_mode = OFF;
 int extra_definitions = OFF, commandline_parsing = ON, makefile_rules = NO;
 int listfile_data = NO, quiet = NO, use_incdir = NO, little_endian = YES;
+int create_sizeof_definitions = YES;
 
 char *final_name = NULL, *asm_name = NULL, ext_incdir[MAX_NAME_LENGTH + 2];
 
 
 int main(int argc, char *argv[]) {
 
-  int parse_flags_result;
-  int n_ctr;
+  int parse_flags_result, n_ctr, q, include_size = 0;
   
   if (sizeof(double) != 8) {
     fprintf(stderr, "MAIN: sizeof(double) == %d != 8. WLA will not work properly.\n", (int)sizeof(double));
@@ -107,6 +108,15 @@ int main(int argc, char *argv[]) {
   global_unique_label_map = hashmap_new();
   namespace_map = hashmap_new();
 
+  /* init label stack */
+  for (q = 0; q < 256; q++)
+    label_stack[q] = NULL;
+  for (q = 0; q < 256; q++) {
+    label_stack[q] = calloc(MAX_NAME_LENGTH + 1, 1);
+    if (label_stack[q] == NULL)
+      return 1;
+  }
+  
   parse_flags_result = FAILED;
   if (argc >= 2) {
     parse_flags_result = parse_flags(argv, argc);
@@ -126,7 +136,7 @@ int main(int argc, char *argv[]) {
   }
   
   if (output_format == OUTPUT_NONE || parse_flags_result == FAILED) {
-    printf("\nWLA " ARCH_STR " Macro Assembler v9.11a\n");
+    printf("\nWLA " ARCH_STR " Macro Assembler v9.12a\n");
     printf("Written by Ville Helin in 1998-2008 - In GitHub since 2014: https://github.com/vhelin/wla-dx\n");
 #ifdef WLA_DEBUG
     printf("*** WLA_DEBUG defined - this executable is running in DEBUG mode ***\n");
@@ -137,6 +147,7 @@ int main(int argc, char *argv[]) {
     printf("-i  Add list file information\n");
     printf("-M  Output makefile rules\n");
     printf("-q  Quiet\n");
+    printf("-s  Don't create _sizeof_* definitions\n");
     printf("-t  Test compile\n");
     printf("-v  Verbose messages\n");
     printf("-x  Extra compile time labels & definitions\n");
@@ -169,7 +180,7 @@ int main(int argc, char *argv[]) {
   commandline_parsing = OFF;
 
   /* start the process */
-  if (include_file(asm_name) == FAILED)
+  if (include_file(asm_name, &include_size, NULL) == FAILED)
     return 1;
 
   if (pass_1() == FAILED)
@@ -229,7 +240,7 @@ int parse_flags(char **flags, int flagc) {
       if (count + 1 < flagc) {
         if (count + 3 < flagc) {
           if (!strcmp(flags[count+2], "=")) {
-	    int length = strlen(flags[count+1])+strlen(flags[count+3])+2;
+	    int length = (int)strlen(flags[count+1])+(int)strlen(flags[count+3])+2;
             str_build = calloc(length, 1);
             snprintf(str_build, length, "%s=%s", flags[count+1], flags[count+3]);
             parse_and_add_definition(str_build, NO);
@@ -265,6 +276,10 @@ int parse_flags(char **flags, int flagc) {
     }
     else if (!strcmp(flags[count], "-v")) {
       verbose_mode = ON;
+      continue;
+    }
+    else if (!strcmp(flags[count], "-s")) {
+      create_sizeof_definitions = NO;
       continue;
     }
     else if (!strcmp(flags[count], "-t")) {
@@ -341,6 +356,9 @@ void procedures_at_exit(void) {
   free(asm_name);
   free(include_dir);
   free(full_name);
+
+  for (i = 0; i < 256; i++)
+    free(label_stack[i]);
 
   if (defines_map != NULL) {
     hashmap_free_all_elements(defines_map);
@@ -473,6 +491,21 @@ void procedures_at_exit(void) {
     free(f1->filename);
     free(f1);
     f1 = f2;
+  }
+
+  while (stringmaptables != NULL)
+  {
+    struct stringmaptable *sm = stringmaptables;
+    while (sm->entries != NULL)
+    {
+      struct stringmap_entry *e = sm->entries;
+      free(e->bytes);
+      free(e->text);
+      sm->entries = e->next;
+      free(e);
+    }
+    stringmaptables = sm->next;
+    free(sm);
   }
 
   /* remove the tmp files */
@@ -622,7 +655,7 @@ int parse_and_add_definition(char *c, int contains_flag) {
       s[t] = 0;
       
       if (*c == 0)
-        result = add_a_new_definition(n, 0.0, s, DEFINITION_TYPE_STRING, strlen(s));
+        result = add_a_new_definition(n, 0.0, s, DEFINITION_TYPE_STRING, (int)strlen(s));
       else {
         fprintf(stderr, "PARSE_AND_ADD_DEFINITION: Incorrectly terminated quoted string (%s).\n", value);
         result = FAILED;
@@ -633,7 +666,7 @@ int parse_and_add_definition(char *c, int contains_flag) {
     }
 
     /* unquoted string */
-    return add_a_new_definition(n, 0.0, c, DEFINITION_TYPE_STRING, strlen(c));
+    return add_a_new_definition(n, 0.0, c, DEFINITION_TYPE_STRING, (int)strlen(c));
   }
 
   return FAILED;
